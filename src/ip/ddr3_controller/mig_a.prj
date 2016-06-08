@@ -21,7 +21,7 @@
         <MemoryDevice>DDR3_SDRAM/Components/MT41J128M16XX-125</MemoryDevice>
         <TimePeriod>3000</TimePeriod>
         <VccAuxIO>1.8V</VccAuxIO>
-        <PHYRatio>2:1</PHYRatio>
+        <PHYRatio>4:1</PHYRatio>
         <InputClkFreq></InputClkFreq>
         <UIExtraClocks>0</UIExtraClocks>
         <MMCM_VCO>666</MMCM_VCO>

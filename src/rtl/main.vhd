@@ -115,10 +115,10 @@ architecture top_level_arch of top_level is
         app_addr                  : in    std_logic_vector(27 downto 0);
         app_cmd                   : in    std_logic_vector(2 downto 0);
         app_en                    : in    std_logic;
-        app_wdf_data              : in    std_logic_vector(63 downto 0);
+        app_wdf_data              : in    std_logic_vector(127 downto 0);
         app_wdf_end               : in    std_logic;
         app_wdf_wren              : in    std_logic;
-        app_rd_data               : out   std_logic_vector(63 downto 0);
+        app_rd_data               : out   std_logic_vector(127 downto 0);
         app_rd_data_end           : out   std_logic;
         app_rd_data_valid         : out   std_logic;
         app_rdy                   : out   std_logic;
@@ -146,11 +146,11 @@ architecture top_level_arch of top_level is
     signal ram_app_rdy: std_logic;
     signal ram_app_cmd: std_logic_vector(2 downto 0);
     signal ram_app_en: std_logic;
-    signal ram_app_rd_data: std_logic_vector(63 downto 0);
-    signal ram_last_rd_data: std_logic_vector(63 downto 0) := (others => '0');
+    signal ram_app_rd_data: std_logic_vector(127 downto 0);
+    signal ram_last_rd_data: std_logic_vector(127 downto 0) := (others => '0');
     signal ram_app_rd_data_valid: std_logic;
     signal ram_app_wdf_rdy: std_logic;
-    signal ram_app_wdf_data: std_logic_vector(63 downto 0);
+    signal ram_app_wdf_data: std_logic_vector(127 downto 0);
     signal ram_app_wdf_wren: std_logic;
     signal ram_app_wdf_end: std_logic;
 
@@ -364,7 +364,7 @@ begin
         ram_app_wdf_end <= '0';
 
         n := to_integer(comm_port);
-        if (n < 4) then
+        if (n < 8) then
             -- write to ram_wr buffer or read from last ram word
             if comm_to_ram.wr_req = '1' then
                 -- write word to ram write buffer

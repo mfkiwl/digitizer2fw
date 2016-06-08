@@ -184,6 +184,12 @@ set_property -dict {PACKAGE_PIN A10 IOSTANDARD DIFF_SSTL15 IN_TERM NONE} [get_po
 
 ### USB
 ###############################################################################
+set_property -dict {PACKAGE_PIN N12 IOSTANDARD LVCMOS33} [get_ports USB_CLKOUT]
+set_property -dict {PACKAGE_PIN P14 IOSTANDARD LVCMOS33} [get_ports USB_TXE]
+set_property -dict {PACKAGE_PIN M14 IOSTANDARD LVCMOS33} [get_ports USB_RXF]
+set_property -dict {PACKAGE_PIN T14 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports USB_WR]
+set_property -dict {PACKAGE_PIN T15 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports USB_RD]
+set_property -dict {PACKAGE_PIN P13 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports USB_OE]
 set_property -dict {PACKAGE_PIN M16 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports {USB_D[0]}]
 set_property -dict {PACKAGE_PIN M15 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports {USB_D[1]}]
 set_property -dict {PACKAGE_PIN N16 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports {USB_D[2]}]
@@ -192,12 +198,6 @@ set_property -dict {PACKAGE_PIN P16 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get
 set_property -dict {PACKAGE_PIN P15 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports {USB_D[5]}]
 set_property -dict {PACKAGE_PIN R16 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports {USB_D[6]}]
 set_property -dict {PACKAGE_PIN R15 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports {USB_D[7]}]
-set_property -dict {PACKAGE_PIN N12 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports USB_CLKOUT]
-set_property -dict {PACKAGE_PIN T14 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports USB_WR]
-set_property -dict {PACKAGE_PIN P14 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports USB_TXE]
-set_property -dict {PACKAGE_PIN M14 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports USB_RXF]
-set_property -dict {PACKAGE_PIN T15 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports USB_RD]
-set_property -dict {PACKAGE_PIN P13 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports USB_OE]
 
 # MRCC N side cannot be used as single ended clock, need board revision, move N12 -> N11
 set_property CLOCK_DEDICATED_ROUTE FALSE [get_nets USB_CLKOUT_IBUF]

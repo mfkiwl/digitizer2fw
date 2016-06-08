@@ -39,12 +39,11 @@ architecture ft2232fifo_arch of ft2232fifo is
     -- registers for signals from or to ftdi
     signal qusb_rxf_n, qusb_txe_n: std_logic := '1';
     signal usb_rxf, usb_txe: std_logic;
-    signal usb_rd_en, usb_wr_en, usb_oe: std_logic := '0';
-    signal usb_rd_en_at_ftdi, usb_wr_en_at_ftdi: std_logic := '0';
+    signal usb_rd_en, usb_wr_en, usb_rd_en_at_ftdi, usb_wr_en_at_ftdi: std_logic := '0';
     signal usb_d_out, usb_d_in: std_logic_vector(7 downto 0) := (others => '-'); 
     signal int_rd_en, int_wr_en, int_oe: std_logic;
     signal int_d_out: std_logic_vector(7 downto 0);
-    
+
     signal drive_usb_d: boolean;
     signal fifo_in_wr_en_i, fifo_out_rd_en_i: std_logic;
 
@@ -250,25 +249,32 @@ end process;
 int_d_out <= tx_data_ring(to_integer(tx_index_rd));
 fifo_out_rd_en <= fifo_out_rd_en_i;
 
-sync_output: process(usb_clk)
+sync_output_internal: process(usb_clk)
 begin
     if rising_edge(usb_clk) then
         if rst = '1' then
-            usb_oe <= '0';
             usb_rd_en <= '0';
             usb_wr_en <= '0';
             usb_rd_en_at_ftdi <= '0';
             usb_wr_en_at_ftdi <= '0';
+        else
+            usb_rd_en <= int_rd_en;
+            usb_wr_en <= int_wr_en;
+            usb_rd_en_at_ftdi <= usb_rd_en;
+            usb_wr_en_at_ftdi <= usb_wr_en;
+        end if;
+    end if;
+end process;
+
+sync_output: process(usb_clk)
+begin
+    if rising_edge(usb_clk) then
+        if rst = '1' then
             usb_d_out <= (others => '-');
             usb_oe_n <= '1';
             usb_rd_n <= '1';
             usb_wr_n <= '1';
         else
-            usb_oe <= int_oe;
-            usb_rd_en <= int_rd_en;
-            usb_wr_en <= int_wr_en;
-            usb_rd_en_at_ftdi <= usb_rd_en;
-            usb_wr_en_at_ftdi <= usb_wr_en;
             usb_d_out <= int_d_out;
             usb_oe_n <= not int_oe;
             usb_rd_n <= not int_rd_en;

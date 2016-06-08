@@ -101,10 +101,15 @@ begin
 end process;
 
 data_received: process(usb_clk)
+    variable data_expected: integer := 0;
+    variable data_received: integer;
 begin
     if rising_edge(usb_clk) then
         if (fifo_in_wr_en = '1') and (fifo_in_full = '0') then
-            report "RX: " & integer'image(to_integer(unsigned(fifo_in_data)));
+            data_received := to_integer(unsigned(fifo_in_data));
+            report "RX: " & integer'image(data_received);
+            assert (data_received = data_expected) report "recieved bad data" severity failure;
+            data_expected := data_expected + 1;
         end if;
     end if;
 end process;
@@ -118,11 +123,25 @@ begin
     end if;
 end process;
 
+data_transmitted: process(usb_clk)
+    variable data_expected: integer := 0;
+    variable data_transmitted: integer;
+begin
+    if rising_edge(usb_clk) then
+        if (usb_wr_n = '0') and (usb_txe_n = '0') then
+            data_transmitted := to_integer(unsigned(usb_d));
+            report "TX: " & integer'image(data_transmitted);
+            assert (data_transmitted = data_expected) report "transmitted bad data" severity failure;
+            data_expected := data_expected + 1;
+        end if;
+    end if;
+end process;
+
 stimulus: process
-    constant usb_txe_n_pattern:      std_logic_vector := "0000000000000000000000000000000";
-    constant usb_rxf_n_pattern:      std_logic_vector := "1111000000110000001111111111111";
-    constant fifo_in_full_pattern:   std_logic_vector := "0000000000000000000000000000000";
-    constant fifo_out_empty_pattern: std_logic_vector := "1111111111111111111111111111111";
+    constant usb_txe_n_pattern:      std_logic_vector := "111100000011111111110000000000000000000000";
+    constant usb_rxf_n_pattern:      std_logic_vector := "111111111111111111111110000000000000001111";
+    constant fifo_in_full_pattern:   std_logic_vector := "000000000000000000000000000000000000000000";
+    constant fifo_out_empty_pattern: std_logic_vector := "000000000000000000000000000111000000000000";
 begin
     usb_txe_n <= usb_txe_n_pattern(0);
     usb_rxf_n <= usb_rxf_n_pattern(0);

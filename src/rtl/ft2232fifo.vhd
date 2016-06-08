@@ -36,69 +36,32 @@ entity ft2232fifo is
 end ft2232fifo;
 
 architecture ft2232fifo_arch of ft2232fifo is
-    -- registers for signals from or to ftdi
-    signal qusb_rxf_n, qusb_txe_n: std_logic := '1';
-    signal usb_rxf, usb_txe: std_logic;
-    signal usb_rd_en, usb_wr_en, usb_rd_en_at_ftdi, usb_wr_en_at_ftdi: std_logic := '0';
-    signal usb_d_out, usb_d_in: std_logic_vector(7 downto 0) := (others => '-'); 
-    signal int_rd_en, int_wr_en, int_oe: std_logic;
-    signal int_d_out: std_logic_vector(7 downto 0);
+    signal usb_rd_en, usb_wr_en: std_logic;
+    signal sfifo_out_rd_en: std_logic;
 
-    signal drive_usb_d: boolean;
-    signal fifo_in_wr_en_i, fifo_out_rd_en_i: std_logic;
-
-    type byte_array_t is array(integer range <>) of std_logic_vector(7 downto 0);
-
-    -- data read buffer
-    signal rx_data_ring: byte_array_t(3 downto 0) := (others => (others => '-'));
-    signal rx_index_rd: unsigned(1 downto 0) := (others => '0');
-    signal rx_index_wr: unsigned(1 downto 0) := (others => '0');
-    signal rx_count: integer range 0 to rx_data_ring'high := 0;
-
-    -- data write buffer
-    signal tx_data_ring: byte_array_t(3 downto 0) := (others => (others => '-'));
-    signal tx_index_rd: unsigned(1 downto 0) := (others => '0');
-    signal tx_index_wr: unsigned(1 downto 0) := (others => '0');
-    signal tx_count: integer range 0 to tx_data_ring'high := 0;
+    -- data read registers
+    signal qdata_in: std_logic_vector(7 downto 0) := (others => '-');
+    signal qdata_in_valid: std_logic := '0';
+    
+    -- data write registers
+    signal qdata_out: std_logic_vector(7 downto 0) := (others => '-');
+    signal qdata_out_valid: std_logic := '0';
 
     -- state register
     type state_t is (
         s_reset, s_idle,
-        s_switch_to_read, s_read, s_end_read,
-        s_write
+		  s_read_mode, s_write_mode,
+        s_switch_to_write1, s_switch_to_write2, s_switch_to_read
     );
     signal state, next_state: state_t;
 
-    attribute iob: string;
---  attribute iob of usb_rxf_n: signal is "FORCE";
---  attribute iob of usb_txe_n: signal is "FORCE";
---	attribute iob of usb_wr_n: signal is "FORCE";
---	attribute iob of usb_rd_n: signal is "FORCE";
---	attribute iob of usb_oe_n: signal is "FORCE";
---	attribute iob of usb_d: signal is "FORCE";
---	attribute iob of usb_d_out: signal is "FORCE";
---	attribute iob of usb_d_in: signal is "FORCE";
-
 begin
 
-usb_d <= usb_d_out when drive_usb_d else (others => 'Z');
-
-sync_input: process(usb_clk)
-begin
-    if rising_edge(usb_clk) then
-        if rst = '1' then
-            qusb_rxf_n <= '0';
-            qusb_txe_n <= '0';
-            usb_d_in <= (others => '-');
-        else
-            qusb_rxf_n <= usb_rxf_n;
-            qusb_txe_n <= usb_txe_n;
-            usb_d_in <= usb_d;
-        end if;
-    end if;
-end process;
-usb_rxf <= not qusb_rxf_n;
-usb_txe <= not qusb_txe_n;
+usb_rd_n <= not usb_rd_en;
+usb_wr_n <= not usb_wr_en;
+fifo_in_data <= qdata_in;
+fifo_in_wr_en <= qdata_in_valid;
+fifo_out_rd_en <= sfifo_out_rd_en;
 
 sync_state: process(usb_clk)
 begin
@@ -111,176 +74,107 @@ begin
     end if;
 end process;
 
-sync_receive_data: process(usb_clk)
-    variable byte_delta: integer range -1 to 1;
+sync_data_in: process(usb_clk)
 begin
     if rising_edge(usb_clk) then
         if rst = '1' then
-            rx_count <= 0;
-            rx_index_rd <= (others => '0');
-            rx_index_wr <= (others => '0');
-            rx_data_ring <= (others => (others => '-'));
-        else
-            byte_delta := 0;
-            -- add byte from usb to ring if valid
-            if (usb_rd_en_at_ftdi = '1') and (usb_rxf = '1') then
-                rx_data_ring(to_integer(rx_index_wr)) <= usb_d_in;
-                rx_index_wr <= rx_index_wr + 1;
-                byte_delta := byte_delta + 1;
-            end if;
-            -- remove byte from ring if read from interface
-            if (fifo_in_wr_en_i = '1') and (fifo_in_full = '0') then
-                rx_index_rd <= rx_index_rd + 1;
-                byte_delta := byte_delta - 1;
-            end if;
-            rx_count <= rx_count + byte_delta;
-        end if;
-    end if;
-end process;
-fifo_in_data <= rx_data_ring(to_integer(rx_index_rd)) when rx_count /= 0 else (others => '-');
-fifo_in_wr_en_i <= '1' when rx_count /= 0 else '0';
-fifo_in_wr_en <= fifo_in_wr_en_i;
-
-sync_transmit_data: process(usb_clk)
-    variable byte_delta: integer range -1 to 1;
-begin
-    if rising_edge(usb_clk) then
-        if rst = '1' then
-            tx_count <= 0;
-            tx_index_rd <= (others => '0');
-            tx_index_wr <= (others => '0');
-            tx_data_ring <= (others => (others => '-'));
-        else
-            byte_delta := 0;
-            -- add byte from interface
-            if (fifo_out_rd_en_i = '1') and (fifo_out_empty = '0') then
-                tx_data_ring(to_integer(tx_index_wr)) <= fifo_out_data;
-                tx_index_wr <= tx_index_wr + 1;
-                byte_delta := byte_delta + 1;
-            end if;
-            -- advance data pointer at each write
-            if int_wr_en = '1' then
-                tx_index_rd <= tx_index_rd + 1;
-                byte_delta := byte_delta - 1;
-            end if;
-            -- recover byte from ring if write was not accepted
-            if (usb_wr_en_at_ftdi = '1') and (usb_txe = '0') then
-                tx_index_rd <= tx_index_rd - 1;
-                byte_delta := byte_delta + 1;
-            end if;
-
-            tx_count <= tx_count + byte_delta;
+            qdata_in_valid <= '0';
+            qdata_in <= (others => '-');
+        elsif (usb_rd_en = '1') and (usb_rxf_n = '0') then
+            -- new data word from usb
+            qdata_in_valid <= '1';
+            qdata_in <= usb_d;
+        elsif (qdata_in_valid = '1') and (fifo_in_full = '0') then
+            -- data word consumed by fifo and no new data from usb
+            qdata_in_valid <= '0';
+            qdata_in <= (others => '-');
         end if;
     end if;
 end process;
 
-comb_state: process(state,
-                    fifo_in_full, usb_rxf, rx_count,
-                    fifo_out_empty, usb_txe, tx_count)
+sync_data_out: process(usb_clk)
+begin
+    if rising_edge(usb_clk) then
+        if rst = '1' then
+            qdata_out_valid <= '0';
+            qdata_out <= (others => '-');
+        elsif (sfifo_out_rd_en = '1') and (fifo_out_empty = '0') then
+            -- new data word from fifo
+            qdata_out_valid <= '1';
+            qdata_out <= fifo_out_data;
+        elsif (usb_wr_en = '1') and (usb_txe_n = '0') then
+            -- data word consumed by usb and no new data from fifo
+            qdata_out_valid <= '0';
+            qdata_out <= (others => '-');
+        end if;
+    end if;
+end process;
+
+comb_state: process(state, usb_rxf_n, usb_txe_n, qdata_out, qdata_out_valid, fifo_in_full)
     variable could_wr, could_rd: boolean;
 begin
     -- next state
     next_state <= state;
     -- output defaults
-    drive_usb_d <= false;
-    int_oe <= '0';
-    int_rd_en <= '0';
-    int_wr_en <= '0';
+    usb_oe_n <= '1';
+    usb_rd_en <= '0';
+    usb_wr_en <= '0';
+    usb_d <= (others => 'Z');
+    -- always read from fifo if qdata_out is empty
+    sfifo_out_rd_en <= not qdata_out_valid;
 
-    -- internal defaults
-    fifo_out_rd_en_i <= '0';
-
-    could_wr := (usb_txe = '1') and ((tx_count > 0) or (fifo_out_empty = '0'));
-    could_rd := (fifo_in_full = '0') and (usb_rxf = '1') and (rx_count <= 1);
+    could_wr := (qdata_out_valid = '1') and (usb_txe_n = '0');
+    could_rd := (fifo_in_full = '0') and (usb_rxf_n = '0');
     case state is
         when s_reset =>
             next_state <= s_idle;
-        when s_idle =>
-            -- switch to write or read mode
-            if could_wr then
-                next_state <= s_write;
-            elsif could_rd then
-                next_state <= s_switch_to_read;
-            end if;
+		  when s_idle =>
+		      if could_wr then
+					next_state <= s_switch_to_write1;
+				elsif could_rd then
+					next_state <= s_switch_to_read;
+				end if;
         when s_switch_to_read =>
             -- disable our outputs and enable usb outputs 
-            int_oe <= '1';
-            next_state <= s_read;
-        when s_read =>
-            -- read data from usb
-            int_oe <= '1';
-            int_rd_en <= '1';
-            -- end reading if there is nothing to read or interface won't accpet more data
-            if not could_rd then
-                int_rd_en <= '0';
-                next_state <= s_end_read;
+            next_state <= s_read_mode;
+            usb_oe_n <= '0';
+        when s_read_mode =>
+            -- read data from usb if fifo accepts it
+            usb_oe_n <= '0';
+            usb_rd_en <= not fifo_in_full;
+            -- end read mode if there is nothing to read
+				if not could_rd then
+					if could_wr then
+						next_state <= s_switch_to_write1;
+					else
+						next_state <= s_idle;
+					end if;
+				end if;
+        when s_switch_to_write1 => 
+            -- disable usb output for write mode
+            next_state <= s_switch_to_write2;
+        when s_switch_to_write2 =>
+            -- wait one cycle before enabling our output
+            next_state <= s_write_mode;
+        when s_write_mode =>
+            -- write to usb if valid, get next word from fifo if usb accepts data
+            usb_d <= qdata_out;
+            if (qdata_out_valid = '1') then
+                usb_wr_en <= qdata_out_valid;
+                sfifo_out_rd_en <= not usb_txe_n;
             end if;
-        when s_end_read =>
-            -- wait until last read command passed 
-            if could_wr then
-                next_state <= s_write;
-            else
-                next_state <= s_idle;
-            end if;
-        when s_write =>
-            drive_usb_d <= true;
-            if could_wr then
-                -- write valid data to usb
-                if tx_count > 0 then
-                    int_wr_en <= '1'; 
-                end if;
-                -- fetch data from interface if there is enough space for failed writes
-                if tx_count <= 1 then
-                    fifo_out_rd_en_i <= '1';
-                end if;
-            else
-                -- end writing if there is nothing to write or usb won't accept more data
-                if could_rd then
-                    next_state <= s_switch_to_read;
-                else
-                    next_state <= s_idle;
-                end if;
-            end if;
+            -- end write mode if there is nothing to write
+				if not could_wr then
+					if could_rd then
+						next_state <= s_switch_to_read;
+					else
+						next_state <= s_idle;
+					end if;
+				end if;
         when others =>
             null;
     end case;
     
-end process;
-int_d_out <= tx_data_ring(to_integer(tx_index_rd));
-fifo_out_rd_en <= fifo_out_rd_en_i;
-
-sync_output_internal: process(usb_clk)
-begin
-    if rising_edge(usb_clk) then
-        if rst = '1' then
-            usb_rd_en <= '0';
-            usb_wr_en <= '0';
-            usb_rd_en_at_ftdi <= '0';
-            usb_wr_en_at_ftdi <= '0';
-        else
-            usb_rd_en <= int_rd_en;
-            usb_wr_en <= int_wr_en;
-            usb_rd_en_at_ftdi <= usb_rd_en;
-            usb_wr_en_at_ftdi <= usb_wr_en;
-        end if;
-    end if;
-end process;
-
-sync_output: process(usb_clk)
-begin
-    if rising_edge(usb_clk) then
-        if rst = '1' then
-            usb_d_out <= (others => '-');
-            usb_oe_n <= '1';
-            usb_rd_n <= '1';
-            usb_wr_n <= '1';
-        else
-            usb_d_out <= int_d_out;
-            usb_oe_n <= not int_oe;
-            usb_rd_n <= not int_rd_en;
-            usb_wr_n <= not int_wr_en;
-        end if;
-    end if;
 end process;
 
 end ft2232fifo_arch;

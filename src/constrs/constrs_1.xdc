@@ -122,7 +122,7 @@
 
 ### GENERAL PURPOSE
 ###############################################################################
-set_property -dict {PACKAGE_PIN D4 IOSTANDARD LVCMOS25} [get_ports GCLK1]
+#set_property -dict {PACKAGE_PIN D4 IOSTANDARD LVCMOS25} [get_ports GCLK1]
 # LED
 set_property -dict {PACKAGE_PIN T13 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports LED1]
 set_property -dict {PACKAGE_PIN R13 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports LED2]
@@ -218,6 +218,7 @@ set_output_delay -clock [get_clocks USB_CLKOUT] -max -add_delay 8.000 [get_ports
 set_output_delay -clock [get_clocks USB_CLKOUT] -min -add_delay 0.000 [get_ports USB_WR]
 set_output_delay -clock [get_clocks USB_CLKOUT] -max -add_delay 8.000 [get_ports USB_WR]
 
+set_property BEL PLLE2_ADV [get_cells clk_core_main_inst/inst/plle2_adv_inst]
+set_property LOC PLLE2_ADV_X0Y0 [get_cells clk_core_main_inst/inst/plle2_adv_inst]
 set_property BEL MMCME2_ADV [get_cells clk_core_usb_inst/inst/mmcm_adv_inst]
 set_property LOC MMCME2_ADV_X0Y0 [get_cells clk_core_usb_inst/inst/mmcm_adv_inst]
-

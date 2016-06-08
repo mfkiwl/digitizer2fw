@@ -13,7 +13,7 @@ entity top_level is
 --    DIN : in STD_LOGIC_VECTOR ( 1 downto 0 );
     LED1 : out STD_LOGIC;
     LED2 : out STD_LOGIC;
-    GCLK1 : in STD_LOGIC;
+--    GCLK1 : in STD_LOGIC;
 --    GPIO1_N : inout STD_LOGIC;
 --    GPIO1 : inout STD_LOGIC;
 
@@ -59,17 +59,22 @@ end top_level;
 
 architecture top_level_arch of top_level is
     
+    component clk_core_main
+    port (
+        clk_in: in std_logic;
+        clk_main: out std_logic;
+        clk_ddr3_sys: out std_logic;
+        clk_ddr3_ref: out std_logic
+    );
+    end component;
     component clk_core_usb
     port (
         clk_in: in std_logic;
-        clk_core_out: out std_logic;
-        clk_usb_out: out std_logic;
-        clk_to_ddr_sys: out std_logic;
-        clk_to_ddr_ref: out std_logic
+        clk_usb: out std_logic
     );
     end component;
     signal clk_main: std_logic;
-    signal clk_core, clk_usb, clk_to_ddr_sys, clk_to_ddr_ref: std_logic;
+    signal clk_main_out, clk_ddr3_sys, clk_ddr3_ref, clk_usb: std_logic;
 
     component fifo_16
     port (
@@ -110,10 +115,10 @@ architecture top_level_arch of top_level is
         app_addr                  : in    std_logic_vector(27 downto 0);
         app_cmd                   : in    std_logic_vector(2 downto 0);
         app_en                    : in    std_logic;
-        app_wdf_data              : in    std_logic_vector(127 downto 0);
+        app_wdf_data              : in    std_logic_vector(63 downto 0);
         app_wdf_end               : in    std_logic;
         app_wdf_wren              : in    std_logic;
-        app_rd_data               : out   std_logic_vector(127 downto 0);
+        app_rd_data               : out   std_logic_vector(63 downto 0);
         app_rd_data_end           : out   std_logic;
         app_rd_data_valid         : out   std_logic;
         app_rdy                   : out   std_logic;
@@ -135,17 +140,17 @@ architecture top_level_arch of top_level is
       sys_rst                     : in    std_logic
     );
     end component;
+    signal clk_ddr3_app: std_logic;
     signal ram_init_calib_complete: std_logic;
     signal ram_sys_rst: std_logic := '1';
-    signal ram_app_clk: std_logic;
     signal ram_app_rdy: std_logic;
     signal ram_app_cmd: std_logic_vector(2 downto 0);
     signal ram_app_en: std_logic;
-    signal ram_app_rd_data: std_logic_vector(127 downto 0);
-    signal ram_last_rd_data: std_logic_vector(127 downto 0) := (others => '0');
+    signal ram_app_rd_data: std_logic_vector(63 downto 0);
+    signal ram_last_rd_data: std_logic_vector(63 downto 0) := (others => '0');
     signal ram_app_rd_data_valid: std_logic;
     signal ram_app_wdf_rdy: std_logic;
-    signal ram_app_wdf_data: std_logic_vector(127 downto 0);
+    signal ram_app_wdf_data: std_logic_vector(63 downto 0);
     signal ram_app_wdf_wren: std_logic;
     signal ram_app_wdf_end: std_logic;
 
@@ -183,15 +188,19 @@ architecture top_level_arch of top_level is
 
 begin
 
-clk_main <= ram_app_clk;
+clk_main <= clk_ddr3_app;
 
+clk_core_main_inst: clk_core_main
+port map (
+    clk_in => USB_CLKOUT,
+    clk_main => clk_main_out,
+    clk_ddr3_sys => clk_ddr3_sys,
+    clk_ddr3_ref => clk_ddr3_ref
+);
 clk_core_usb_inst: clk_core_usb
 port map (
     clk_in => USB_CLKOUT,
-    clk_core_out => clk_core,
-    clk_usb_out => clk_usb,
-    clk_to_ddr_sys => clk_to_ddr_sys,
-    clk_to_ddr_ref => clk_to_ddr_ref
+    clk_usb => clk_usb
 );
 
 ddr3_controller_inst : ddr3_controller
@@ -229,12 +238,12 @@ port map (
     app_sr_active                  => open,
     app_ref_ack                    => open,
     app_zq_ack                     => open,
-    ui_clk                         => ram_app_clk,
+    ui_clk                         => clk_ddr3_app,
     ui_clk_sync_rst                => open,
     -- System Clock Ports
-    sys_clk_i                      => clk_to_ddr_sys,
+    sys_clk_i                      => clk_ddr3_sys,
     -- Reference Clock Ports
-    clk_ref_i                      => clk_to_ddr_ref,
+    clk_ref_i                      => clk_ddr3_ref,
     device_temp_o                  => open,
     sys_rst                        => ram_sys_rst
 );
@@ -341,12 +350,12 @@ begin
 end process;
 
 -- ram comm slave
-process(ram_app_clk)
+process(clk_ddr3_app)
     constant RAM_CMD_WR: std_logic_vector(2 downto 0) := "000";
     constant RAM_CMD_RD: std_logic_vector(2 downto 0) := "001";
     variable n: integer;
 begin
-    if rising_edge(ram_app_clk) then
+    if rising_edge(clk_ddr3_app) then
         -- default, no ram activity, no comm answer
         comm_from_ram <= (rd_ack => '0', wr_ack => '0', data_rd => (others => '-'));
         ram_app_en <= '0';
@@ -355,7 +364,7 @@ begin
         ram_app_wdf_end <= '0';
 
         n := to_integer(comm_port);
-        if (n < 8) then
+        if (n < 4) then
             -- write to ram_wr buffer or read from last ram word
             if comm_to_ram.wr_req = '1' then
                 -- write word to ram write buffer

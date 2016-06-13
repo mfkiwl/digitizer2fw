@@ -37,9 +37,13 @@ end ft2232fifo;
 
 architecture ft2232fifo_arch of ft2232fifo is
     -- registers for signals from or to ftdi
-    signal qusb_rxf_n, qusb_txe_n: std_logic := '1';
+    signal qusb_rxf_n: std_logic := '1';
+    signal qusb_txe_n: std_logic := '1';
     signal usb_rxf, usb_txe: std_logic;
-    signal usb_rd_en, usb_wr_en, usb_rd_en_at_ftdi, usb_wr_en_at_ftdi: std_logic := '0';
+    signal usb_rd_en: std_logic := '0';
+    signal usb_wr_en: std_logic := '0';
+    signal usb_rd_en_at_ftdi: std_logic := '0';
+    signal usb_wr_en_at_ftdi: std_logic := '0';
     signal usb_d_out, usb_d_in: std_logic_vector(7 downto 0) := (others => '-'); 
     signal int_rd_en, int_wr_en, int_oe: std_logic;
     signal int_d_out: std_logic_vector(7 downto 0);
@@ -67,17 +71,17 @@ architecture ft2232fifo_arch of ft2232fifo is
         s_switch_to_read, s_read, s_end_read,
         s_write
     );
-    signal state, next_state: state_t;
+    signal state, next_state: state_t := s_reset;
 
     attribute iob: string;
---  attribute iob of usb_rxf_n: signal is "FORCE";
---  attribute iob of usb_txe_n: signal is "FORCE";
---	attribute iob of usb_wr_n: signal is "FORCE";
---	attribute iob of usb_rd_n: signal is "FORCE";
---	attribute iob of usb_oe_n: signal is "FORCE";
---	attribute iob of usb_d: signal is "FORCE";
---	attribute iob of usb_d_out: signal is "FORCE";
---	attribute iob of usb_d_in: signal is "FORCE";
+    --attribute iob of usb_rxf_n: signal is "FORCE";
+    --attribute iob of usb_txe_n: signal is "FORCE";
+  	attribute iob of usb_wr_n: signal is "FORCE";
+  	attribute iob of usb_rd_n: signal is "FORCE";
+  	attribute iob of usb_oe_n: signal is "FORCE";
+  	--attribute iob of usb_d: signal is "FORCE";
+  	--attribute iob of usb_d_out: signal is "FORCE"; -- TODO: drive_usb_d must be registered for moving usb_d to iob
+  	--attribute iob of usb_d_in: signal is "FORCE";
 
 begin
 
@@ -87,8 +91,8 @@ sync_input: process(usb_clk)
 begin
     if rising_edge(usb_clk) then
         if rst = '1' then
-            qusb_rxf_n <= '0';
-            qusb_txe_n <= '0';
+            qusb_rxf_n <= '1';
+            qusb_txe_n <= '1';
             usb_d_in <= (others => '-');
         else
             qusb_rxf_n <= usb_rxf_n;

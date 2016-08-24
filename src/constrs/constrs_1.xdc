@@ -126,6 +126,8 @@
 # LED
 set_property -dict {PACKAGE_PIN T13 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports LED1]
 set_property -dict {PACKAGE_PIN R13 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports LED2]
+# analog power enable/disable 
+set_property -dict {PACKAGE_PIN T5 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports APWR_EN]
 
 ### DRAM
 ###############################################################################
@@ -179,12 +181,15 @@ set_property -dict {PACKAGE_PIN A10 IOSTANDARD DIFF_SSTL15 IN_TERM NONE} [get_po
 
 ### ANALOG
 ###############################################################################
-#set_property -dict {PACKAGE_PIN A5 IOSTANDARD LVDS_25} [get_ports ADC_SAMPLE_CLK]
-#set_property -dict {PACKAGE_PIN A4 IOSTANDARD LVDS_25} [get_ports ADC_SAMPLE_CLK_N]
+set_property -dict {PACKAGE_PIN M1 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports ADC_ENABLE]
+set_property -dict {PACKAGE_PIN N2 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports ADC_SRESET]
+set_property -dict {PACKAGE_PIN N1 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports ADC_SDIO]
+set_property -dict {PACKAGE_PIN P1 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports ADC_SCLK]
+set_property -dict {PACKAGE_PIN R1 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports ADC_SDENB]
 
 ### USB
 ###############################################################################
-set_property -dict {PACKAGE_PIN N12 IOSTANDARD LVCMOS33} [get_ports USB_CLKOUT]
+set_property -dict {PACKAGE_PIN N11 IOSTANDARD LVCMOS33} [get_ports USB_CLKOUT]
 set_property -dict {PACKAGE_PIN P14 IOSTANDARD LVCMOS33} [get_ports USB_TXE]
 set_property -dict {PACKAGE_PIN M14 IOSTANDARD LVCMOS33} [get_ports USB_RXF]
 set_property -dict {PACKAGE_PIN T14 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports USB_WR]
@@ -198,9 +203,7 @@ set_property -dict {PACKAGE_PIN P16 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get
 set_property -dict {PACKAGE_PIN P15 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports {USB_D[5]}]
 set_property -dict {PACKAGE_PIN R16 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports {USB_D[6]}]
 set_property -dict {PACKAGE_PIN R15 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports {USB_D[7]}]
-
-# MRCC N side cannot be used as single ended clock, need board revision, move N12 -> N11
-set_property CLOCK_DEDICATED_ROUTE FALSE [get_nets USB_CLKOUT_IBUF]
+set_property -dict {PACKAGE_PIN N12 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports USB_SIWUA]
 
 create_clock -period 16.667 -name USB_CLKOUT -waveform {0.000 8.334} [get_ports USB_CLKOUT]
 set_input_delay -clock [get_clocks USB_CLKOUT] -min -add_delay 1.000 [get_ports {USB_D[*]}]
@@ -217,6 +220,35 @@ set_output_delay -clock [get_clocks USB_CLKOUT] -min -add_delay 0.000 [get_ports
 set_output_delay -clock [get_clocks USB_CLKOUT] -max -add_delay 8.000 [get_ports USB_RD]
 set_output_delay -clock [get_clocks USB_CLKOUT] -min -add_delay 0.000 [get_ports USB_WR]
 set_output_delay -clock [get_clocks USB_CLKOUT] -max -add_delay 8.000 [get_ports USB_WR]
+
+### GROUNDS
+###############################################################################
+set_property -dict {PACKAGE_PIN B7 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[0]}]
+set_property -dict {PACKAGE_PIN A7 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[1]}]
+set_property -dict {PACKAGE_PIN B6 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[2]}]
+set_property -dict {PACKAGE_PIN B5 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[3]}]
+set_property -dict {PACKAGE_PIN C7 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[4]}]
+set_property -dict {PACKAGE_PIN C6 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[5]}]
+set_property -dict {PACKAGE_PIN D6 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[6]}]
+set_property -dict {PACKAGE_PIN D5 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[7]}]
+set_property -dict {PACKAGE_PIN E2 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[8]}]
+set_property -dict {PACKAGE_PIN D1 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[9]}]
+set_property -dict {PACKAGE_PIN G5 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[10]}]
+set_property -dict {PACKAGE_PIN G4 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[11]}]
+set_property -dict {PACKAGE_PIN H5 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[12]}]
+set_property -dict {PACKAGE_PIN H4 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[13]}]
+set_property -dict {PACKAGE_PIN J5 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[14]}]
+set_property -dict {PACKAGE_PIN J4 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[15]}]
+set_property -dict {PACKAGE_PIN P4 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[16]}]
+set_property -dict {PACKAGE_PIN P3 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[17]}]
+set_property -dict {PACKAGE_PIN M5 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[18]}]
+set_property -dict {PACKAGE_PIN N4 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[19]}]
+set_property -dict {PACKAGE_PIN R2 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[20]}]
+set_property -dict {PACKAGE_PIN P5 IOSTANDARD LVCMOS25 DRIVE 12 SLEW SLOW} [get_ports {GND[21]}]
+
+
+### PLACEMENT
+###############################################################################
 
 set_property BEL PLLE2_ADV [get_cells clk_core_main_inst/inst/plle2_adv_inst]
 set_property LOC PLLE2_ADV_X0Y0 [get_cells clk_core_main_inst/inst/plle2_adv_inst]

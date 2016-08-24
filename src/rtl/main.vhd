@@ -17,6 +17,8 @@ entity top_level is
 --    GPIO1_N : inout STD_LOGIC;
 --    GPIO1 : inout STD_LOGIC;
 
+    GND: out STD_LOGIC_VECTOR ( 21 downto 0 );
+
     -- USB
     USB_D : inout STD_LOGIC_VECTOR ( 7 downto 0 );
     USB_WR : out STD_LOGIC;
@@ -25,6 +27,7 @@ entity top_level is
     USB_RD : out STD_LOGIC;
     USB_OE : out STD_LOGIC;
     USB_CLKOUT : in STD_LOGIC;
+    USB_SIWUA : out STD_LOGIC;
 
     -- DRAM
     ddr3_dq : inout STD_LOGIC_VECTOR ( 15 downto 0 );
@@ -39,9 +42,16 @@ entity top_level is
     ddr3_ck_p : out STD_LOGIC_VECTOR ( 0 downto 0 );
     ddr3_ck_n : out STD_LOGIC_VECTOR ( 0 downto 0 );
     ddr3_dqs_p : inout STD_LOGIC_VECTOR ( 1 downto 0 );
-    ddr3_dqs_n : inout STD_LOGIC_VECTOR ( 1 downto 0 )
+    ddr3_dqs_n : inout STD_LOGIC_VECTOR ( 1 downto 0 );
 
     -- ADC
+    APWR_EN: out STD_LOGIC;
+    ADC_ENABLE : out STD_LOGIC;
+    ADC_SRESET : out STD_LOGIC;
+    ADC_SDIO : out STD_LOGIC;
+    ADC_SDENB : out STD_LOGIC;
+    ADC_SCLK : out STD_LOGIC
+
 --    ADC_SAMPLE_CLK : out STD_LOGIC;
 --    ADC_SAMPLE_CLK_N : out STD_LOGIC
 --    ADC_DA : in STD_LOGIC_VECTOR ( 11 downto 0 );
@@ -50,10 +60,6 @@ entity top_level is
 --    ADC_DACLK : in STD_LOGIC;
 --    ADC_OVRA : in STD_LOGIC;
 --    ADC_OVRA_N : in STD_LOGIC;
---    ADC_SRESET : out STD_LOGIC;
---    ADC_SDIO : inout STD_LOGIC;
---    ADC_SDENB : out STD_LOGIC;
---    ADC_SCLK : out STD_LOGIC
   );
 end top_level;
 
@@ -154,6 +160,25 @@ architecture top_level_arch of top_level is
     signal ram_app_wdf_wren: std_logic;
     signal ram_app_wdf_end: std_logic;
 
+    component adc_program
+    port (
+        -- application interface
+        clk_main: in std_logic;
+        start: in std_logic;
+        busy: out std_logic;
+        addr: in std_logic_vector(6 downto 0);
+        din: in std_logic_vector(15 downto 0);
+        -- adc interface
+        adc_sdenb: out std_logic;
+        adc_sdio: out std_logic;
+        adc_sclk: out std_logic
+    );
+    end component;
+    signal adc_prog_start: std_logic;
+    signal adc_prog_busy: std_logic;
+    signal adc_prog_addr: std_logic_vector(6 downto 0);
+    signal adc_prog_din: std_logic_vector(15 downto 0);
+
     component ft2232_communication
     port (
         clk: in std_logic;
@@ -176,18 +201,19 @@ architecture top_level_arch of top_level is
     end component;
     
     -- Communitation signals
-    --signal comm_error: std_logic;
     signal comm_addr: unsigned(5 downto 0);
     signal comm_port: unsigned(5 downto 0);
-    signal comm_to_slave, comm_to_global, comm_to_echo, comm_to_ram: comm_to_slave_t;
-    signal comm_from_slave, comm_from_global, comm_from_echo, comm_from_ram: comm_from_slave_t;
+    signal comm_to_slave, comm_to_global, comm_to_echo, comm_to_ram, comm_to_adcprog: comm_to_slave_t;
+    signal comm_from_slave, comm_from_global, comm_from_echo, comm_from_ram, comm_from_adcprog: comm_from_slave_t;
     
     signal global_status: std_logic_vector(2 downto 0);
+    signal global_conf: std_logic_vector(15 downto 0) := (others => '0');
     
-    constant VERSION: natural := 106;
+    constant VERSION: natural := 142;
 
 begin
 
+GND <= (others => '0');
 clk_main <= clk_ddr3_app;
 
 clk_core_main_inst: clk_core_main
@@ -248,6 +274,18 @@ port map (
     sys_rst                        => ram_sys_rst
 );
 
+adc_program_inst: adc_program
+port map (
+    clk_main => clk_main,
+    start => adc_prog_start,
+    busy => adc_prog_busy,
+    addr => adc_prog_addr,
+    din => adc_prog_din,
+    adc_sdenb => ADC_SDENB,
+    adc_sdio => ADC_SDIO,
+    adc_sclk => ADC_SCLK
+);
+
 ft2232_communication_inst: ft2232_communication
 port map (
     clk => clk_main,
@@ -267,15 +305,17 @@ port map (
     usb_txe_n => USB_TXE,
     usb_d => USB_D
 );
+USB_SIWUA <= '1';  -- do not use SIWUA feature for now
 
 -- communication slave select process
-slave_select: process(comm_addr, comm_to_slave, comm_from_global, comm_from_echo, comm_from_ram)
+slave_select: process(comm_addr, comm_to_slave, comm_from_global, comm_from_echo, comm_from_ram, comm_from_adcprog)
     constant not_selected: comm_to_slave_t := (rd_req => '0', wr_req => '0', data_wr => (others => '-'));
 begin
     -- do not pass rd/wr requests to unselected slaves, pass ones from null selection
     comm_to_global <= not_selected;
     comm_to_echo <= not_selected;
     comm_to_ram <= not_selected;
+    comm_to_adcprog <= not_selected;
     comm_from_slave <= (rd_ack => '1', wr_ack => '1', data_rd => (others => '1'));
     -- select communication slave based on comm_addr
     case to_integer(comm_addr) is
@@ -288,17 +328,22 @@ begin
         when 2 =>
             comm_to_ram <= comm_to_slave;
             comm_from_slave <= comm_from_ram;
+        when 3 =>
+            comm_to_adcprog <= comm_to_slave;
+            comm_from_slave <= comm_from_adcprog;
         when others =>
             null;
     end case;
 end process;
 
 -- read global registers
-process(comm_to_global, comm_port, global_status)
+process(comm_to_global, comm_port, global_status, global_conf)
 begin
     comm_from_global <= (rd_ack => '1', wr_ack => '1', data_rd => (others => '0'));
 
     case to_integer(comm_port) is
+        when 0 =>
+            comm_from_global.data_rd(global_conf'range) <= global_conf;
         when 1 =>
             comm_from_global.data_rd(global_status'range) <= global_status;
         when 3 =>
@@ -315,14 +360,18 @@ begin
         -- update status registers
         global_status <= ram_app_wdf_rdy & ram_app_rdy & ram_init_calib_complete;
         
-        -- register command flags from usb
+        -- register write from usb
         if comm_to_global.wr_req = '1' and to_integer(comm_port) = 0 then
-            LED1 <= comm_to_global.data_wr(0);
-            ram_sys_rst <= comm_to_global.data_wr(0);
+            global_conf <= comm_to_global.data_wr(global_conf'range);
         end if;
     end if;
 end process;
 LED2 <= ram_app_rdy;
+ram_sys_rst <= global_conf(0);
+APWR_EN <= global_conf(1);
+LED1 <= global_conf(1);
+ADC_SRESET <= global_conf(2);
+ADC_ENABLE <= global_conf(3);
 
 -- read/write echo buffer
 process(comm_to_echo, comm_port, fifo_echo_empty, fifo_echo_full, fifo_echo_dout, fifo_echo_count)
@@ -399,6 +448,23 @@ begin
         end if;
     end if;
 end process;
+
+-- write adc programming requests
+adc_program_reg: process(clk_main)
+begin
+    if rising_edge(clk_main) then
+        adc_prog_start <= '0';
+        -- register adc data word from usb and start programming
+        if comm_to_adcprog.wr_req = '1' then        
+            adc_prog_start <= '1';
+            adc_prog_addr <= "0" & std_logic_vector(comm_port);
+            adc_prog_din <= comm_to_adcprog.data_wr;
+        end if;
+    end if;
+end process;
+comm_from_adcprog.wr_ack <= not adc_prog_busy;
+comm_from_adcprog.rd_ack <= '1';
+comm_from_adcprog.data_rd <= (others => '-');
 
 fifo_echo: fifo_16
 port map (

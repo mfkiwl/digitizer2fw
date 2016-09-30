@@ -367,7 +367,7 @@ begin
     end if;
 end process;
 LED2 <= ram_app_rdy;
-ram_sys_rst <= global_conf(0);
+ram_sys_rst <= not global_conf(0);
 APWR_EN <= global_conf(1);
 LED1 <= global_conf(1);
 ADC_SRESET <= global_conf(2);

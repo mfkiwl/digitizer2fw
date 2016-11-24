@@ -3,9 +3,10 @@ import time
 REG_CONFIG = (0, 0)
 REG_STATUS = (0, 1)
 REG_VERSION = (0, 3)
+REG_A_THRESHOLD = (0, 4)
 PORT_RAM = 2
 PORT_ADCPROG = 3
-PORT_ADCBUF = 4
+PORT_ACQBUF = 4
 
 
 class Digitizer2Mixin(object):
@@ -81,7 +82,7 @@ class Digitizer2Mixin(object):
         self.adc_program(0x03, 0b0000101100011000)
 
     def adc_program_highperf(self, enabled):
-        value = 0b1000000000001010 if enabled else 0b1000000000001000
+        value = 0b1000000000000010 if enabled else 0b1000000000000000
         self.adc_program(0x1, value)
 
     def adc_temperature(self):
@@ -89,7 +90,7 @@ class Digitizer2Mixin(object):
 
     def _adc_device_init_regs(self):
         self.adc_program(0x00, 0b0000000000000000)  # no decimation, no filter
-        self.adc_program(0x01, 0b1000000000001010)  # corr en, fmt uint12, hp mode1
+        self.adc_program(0x01, 0b1000000000000010)  # corr en, fmt int12, hp mode1
         self.adc_program(0x0e, 0b0000000000000000)  # no sync
         self.adc_program(0x0f, 0b0000000000000000)  # no sync, 1.0V vref
         self.adc_program(0x38, 0b1111111111011111)  # hp mode2, bias en, no sync, lp mode
@@ -112,43 +113,46 @@ class Digitizer2Mixin(object):
             # setup registers
             self._adc_device_init_regs()
             self._adc_program_autocorr_strobe()
+            self.sampling_reset()
 
-    def _adc_io_rst(self, enabled):
+    def _sampling_rst(self, enabled):
         self.set_config_bit(4, enabled)
 
-    def _adc_clk_rst(self, enabled):
+    def sampling_reset(self):
+        self._sampling_rst(True)
+        time.sleep(0.01)
+        self._sampling_rst(False)
+
+    def _acq_reset(self, enabled):
         self.set_config_bit(5, enabled)
 
-    def _adc_buffer_rst(self, enabled):
-        self.set_config_bit(6, enabled)
+    def acq_data_select(self, source):
+        self.set_config_bit(6, source & 0b01)
+        self.set_config_bit(7, source & 0b10)
 
-    def adc_sample_delay_reset(self, enabled):
-        self.set_config_bit(7, enabled)
+    def acq_trigger_mask(self, no_cnt=False, no_d1=True, no_d2=True, no_a=True):
+        self.set_config_bit(11, no_cnt)
+        self.set_config_bit(10, no_d1)
+        self.set_config_bit(9, no_d2)
+        self.set_config_bit(8, no_a)
 
-    def adc_sample_delay_inc(self, enabled):
-        self.set_config_bit(8, enabled)
+    def acq_reset(self):
+        self._acq_reset(True)
+        self._acq_reset(False)
 
-    def adc_sampling_reset(self):
-        self._adc_buffer_rst(True)
-        self._adc_io_rst(True)
-        self._adc_clk_rst(True)
-        self._adc_io_rst(False)
-        self._adc_clk_rst(False)
-        self._adc_buffer_rst(False)
-
-    def adc_buffer_rst(self):
-        self._adc_buffer_rst(True)
-        self._adc_buffer_rst(False)
-
-    def adc_buffer_count(self):
-        return self.read_reg(PORT_ADCBUF, 0)
+    def acq_buffer_count(self):
+        return self.read_reg(PORT_ACQBUF, 0)
 
     def adc_buffer_read(self):
         # read buffer
-        n = self.adc_buffer_count()
-        data = self.read_reg_n(PORT_ADCBUF, 1, n)
+        n = self.acq_buffer_count()
+        data = self.read_reg_n(PORT_ACQBUF, 1, n)
         np.save("data.npy", data)
         return data
+
+    def tdc_a_threshold(self, value):
+        value_u16 = int(np.int16(value).view(np.uint16))
+        self.write_reg(REG_A_THRESHOLD[0], REG_A_THRESHOLD[1], value_u16)
 
     ###################################################
     """

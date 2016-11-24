@@ -1,5 +1,8 @@
 ### GENERAL PURPOSE
 ###############################################################################
+set_property CFGBVS VCCO [current_design]
+set_property CONFIG_VOLTAGE 3.3 [current_design]
+
 #set_property -dict {PACKAGE_PIN D4 IOSTANDARD LVCMOS25} [get_ports GCLK1]
 # LED
 set_property -dict {PACKAGE_PIN T13 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports LED1]
@@ -178,3 +181,8 @@ set_property LOC MMCME2_ADV_X0Y0 [get_cells clk_core_usb_inst/inst/mmcm_adv_inst
 # CDC: sampling reset signal
 set_max_delay -from [get_pins {application_inst/global_conf_reg[4]/C}] -to [get_pins {sampling_inst/rst_int_reg[0]/D}] 10.000
 set_false_path -from [get_pins {application_inst/global_conf_reg[4]/C}] -to [get_pins {sampling_inst/rst_int_reg[0]/D}]
+# CDC: acq data select
+set_max_delay -from [get_pins {application_inst/global_conf_reg[6]/C}] -to [get_pins {application_inst/acq_data_select_buf_reg[0]/D}] 10.000
+set_false_path -from [get_pins {application_inst/global_conf_reg[6]/C}] -to [get_pins {application_inst/acq_data_select_buf_reg[0]/D}]
+set_max_delay -from [get_pins {application_inst/global_conf_reg[7]/C}] -to [get_pins {application_inst/acq_data_select_buf_reg[1]/D}] 10.000
+set_false_path -from [get_pins {application_inst/global_conf_reg[7]/C}] -to [get_pins {application_inst/acq_data_select_buf_reg[1]/D}]

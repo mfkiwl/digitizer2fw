@@ -6,14 +6,18 @@ package sampling_pkg is
 
     constant ADC_SAMPLE_BITS: integer := 12;
 
+    subtype a_sample_t is signed(ADC_SAMPLE_BITS-1 downto 0);
     type adc_sample_t is
         record
-            data: std_logic_vector(ADC_SAMPLE_BITS-1 downto 0);
+            data: a_sample_t;
             ovfl: std_logic;
         end record;
     function to_std_logic_vector(x: adc_sample_t) return std_logic_vector;
     function to_adc_sample_t(x: std_logic_vector) return adc_sample_t;
+
+    type a_samples_t is array (natural range <>) of a_sample_t;
     type adc_samples_t is array (natural range <>) of adc_sample_t;
+
     type din_samples_t is array (natural range <>) of std_logic_vector(1 downto 0);
 
     component sampling
@@ -50,7 +54,7 @@ function to_adc_sample_t(x: std_logic_vector) return adc_sample_t is
     variable result: adc_sample_t;
 begin
     result.ovfl := x(x'low + ADC_SAMPLE_BITS);
-    result.data := std_logic_vector(x(x'low + ADC_SAMPLE_BITS-1 downto x'low));
+    result.data := signed(x(x'low + ADC_SAMPLE_BITS-1 downto x'low));
     return result;
 end to_adc_sample_t;
 

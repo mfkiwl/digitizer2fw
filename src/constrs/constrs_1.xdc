@@ -178,11 +178,55 @@ set_property LOC MMCME2_ADV_X0Y0 [get_cells clk_core_usb_inst/inst/mmcm_adv_inst
 # CLOCK RELATIONS
 # set_clock_groups -name async_usb_adc -asynchronous -group [get_clocks -include_generated_clocks USB_CLKOUT] -group [get_clocks -include_generated_clocks ADC_DACLK_P]
 
-# CDC: sampling reset signal
-set_max_delay -from [get_pins {application_inst/global_conf_reg[4]/C}] -to [get_pins {sampling_inst/rst_int_reg[0]/D}] 10.000
-set_false_path -from [get_pins {application_inst/global_conf_reg[4]/C}] -to [get_pins {sampling_inst/rst_int_reg[0]/D}]
-# CDC: acq data select
-set_max_delay -from [get_pins {application_inst/global_conf_reg[6]/C}] -to [get_pins {application_inst/acq_data_select_buf_reg[0]/D}] 10.000
-set_false_path -from [get_pins {application_inst/global_conf_reg[6]/C}] -to [get_pins {application_inst/acq_data_select_buf_reg[0]/D}]
-set_max_delay -from [get_pins {application_inst/global_conf_reg[7]/C}] -to [get_pins {application_inst/acq_data_select_buf_reg[1]/D}] 10.000
-set_false_path -from [get_pins {application_inst/global_conf_reg[7]/C}] -to [get_pins {application_inst/acq_data_select_buf_reg[1]/D}]
+# CDC: global reg to sample domain
+set_false_path -from [get_pins {application_inst/global_conf_reg[0]/C}] -to [get_pins {application_inst/sync_global_conf/gen[0].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/global_conf_reg[1]/C}] -to [get_pins {application_inst/sync_global_conf/gen[1].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/global_conf_reg[2]/C}] -to [get_pins {application_inst/sync_global_conf/gen[2].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/global_conf_reg[3]/C}] -to [get_pins {application_inst/sync_global_conf/gen[3].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/global_conf_reg[4]/C}] -to [get_pins {application_inst/sync_global_conf/gen[4].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/global_conf_reg[5]/C}] -to [get_pins {application_inst/sync_global_conf/gen[5].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/global_conf_reg[6]/C}] -to [get_pins {application_inst/sync_global_conf/gen[6].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/global_conf_reg[7]/C}] -to [get_pins {application_inst/sync_global_conf/gen[7].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/global_conf_reg[8]/C}] -to [get_pins {application_inst/sync_global_conf/gen[8].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/global_conf_reg[9]/C}] -to [get_pins {application_inst/sync_global_conf/gen[9].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/global_conf_reg[10]/C}] -to [get_pins {application_inst/sync_global_conf/gen[10].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/global_conf_reg[11]/C}] -to [get_pins {application_inst/sync_global_conf/gen[11].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/global_conf_reg[12]/C}] -to [get_pins {application_inst/sync_global_conf/gen[12].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/global_conf_reg[13]/C}] -to [get_pins {application_inst/sync_global_conf/gen[13].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/global_conf_reg[14]/C}] -to [get_pins {application_inst/sync_global_conf/gen[14].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/global_conf_reg[15]/C}] -to [get_pins {application_inst/sync_global_conf/gen[15].sync_bit/d_meta_reg/D}]
+
+set_false_path -from [get_pins {application_inst/acq_conf_reg[0]/C}] -to [get_pins {application_inst/sync_acq_conf/gen[0].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_conf_reg[1]/C}] -to [get_pins {application_inst/sync_acq_conf/gen[1].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_conf_reg[2]/C}] -to [get_pins {application_inst/sync_acq_conf/gen[2].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_conf_reg[3]/C}] -to [get_pins {application_inst/sync_acq_conf/gen[3].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_conf_reg[4]/C}] -to [get_pins {application_inst/sync_acq_conf/gen[4].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_conf_reg[5]/C}] -to [get_pins {application_inst/sync_acq_conf/gen[5].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_conf_reg[6]/C}] -to [get_pins {application_inst/sync_acq_conf/gen[6].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_conf_reg[7]/C}] -to [get_pins {application_inst/sync_acq_conf/gen[7].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_conf_reg[8]/C}] -to [get_pins {application_inst/sync_acq_conf/gen[8].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_conf_reg[9]/C}] -to [get_pins {application_inst/sync_acq_conf/gen[9].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_conf_reg[10]/C}] -to [get_pins {application_inst/sync_acq_conf/gen[10].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_conf_reg[11]/C}] -to [get_pins {application_inst/sync_acq_conf/gen[11].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_conf_reg[12]/C}] -to [get_pins {application_inst/sync_acq_conf/gen[12].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_conf_reg[13]/C}] -to [get_pins {application_inst/sync_acq_conf/gen[13].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_conf_reg[14]/C}] -to [get_pins {application_inst/sync_acq_conf/gen[14].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_conf_reg[15]/C}] -to [get_pins {application_inst/sync_acq_conf/gen[15].sync_bit/d_meta_reg/D}]
+
+set_false_path -from [get_pins {application_inst/tdc_a_threshold_cd1_reg[0]/C}] -to [get_pins {application_inst/sync_a_threshold/gen[0].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/tdc_a_threshold_cd1_reg[1]/C}] -to [get_pins {application_inst/sync_a_threshold/gen[1].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/tdc_a_threshold_cd1_reg[2]/C}] -to [get_pins {application_inst/sync_a_threshold/gen[2].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/tdc_a_threshold_cd1_reg[3]/C}] -to [get_pins {application_inst/sync_a_threshold/gen[3].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/tdc_a_threshold_cd1_reg[4]/C}] -to [get_pins {application_inst/sync_a_threshold/gen[4].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/tdc_a_threshold_cd1_reg[5]/C}] -to [get_pins {application_inst/sync_a_threshold/gen[5].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/tdc_a_threshold_cd1_reg[6]/C}] -to [get_pins {application_inst/sync_a_threshold/gen[6].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/tdc_a_threshold_cd1_reg[7]/C}] -to [get_pins {application_inst/sync_a_threshold/gen[7].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/tdc_a_threshold_cd1_reg[8]/C}] -to [get_pins {application_inst/sync_a_threshold/gen[8].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/tdc_a_threshold_cd1_reg[9]/C}] -to [get_pins {application_inst/sync_a_threshold/gen[9].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/tdc_a_threshold_cd1_reg[10]/C}] -to [get_pins {application_inst/sync_a_threshold/gen[10].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/tdc_a_threshold_cd1_reg[11]/C}] -to [get_pins {application_inst/sync_a_threshold/gen[11].sync_bit/d_meta_reg/D}]
+
+# CDC: acq state
+set_false_path -from [get_pins {application_inst/acq_state_toglobal_reg[0]/C}] -to [get_pins {application_inst/sync_acq_state/gen[0].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_state_toglobal_reg[1]/C}] -to [get_pins {application_inst/sync_acq_state/gen[1].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acq_state_toglobal_reg[2]/C}] -to [get_pins {application_inst/sync_acq_state/gen[2].sync_bit/d_meta_reg/D}]

@@ -25,6 +25,8 @@ port (
     samples_d_in: in din_samples_t(0 to 3);
     samples_a_in: in adc_samples_t(0 to 1);
     a_threshold: in a_sample_t;
+    a_invert: in std_logic;
+    a_average: in std_logic_vector(1 downto 0);
     --
     samples_d_out: out din_samples_t(0 to 3);
     samples_a_out: out a_samples_t(0 to 1);
@@ -38,10 +40,12 @@ port (
 end tdc_sample_prep;
 
 architecture tdc_sample_prep_arch of tdc_sample_prep is
+    -- input filtering
+    signal samples_a_in_avg, samples_a_in_filt: adc_samples_t(0 to 1);
 
-    -- queue samples for sample out alignment
+    -- queue samples for sample out alignment after rising/maximum detection
     constant D_QUEUE_LEN: natural := 2;
-    constant A_QUEUE_LEN: natural := 7;
+    constant A_QUEUE_LEN: natural := 8; -- 8
     type samples_d_buf_t is array(0 to D_QUEUE_LEN-1) of din_samples_t(0 to 3);
     type samples_a_buf_t is array(0 to A_QUEUE_LEN-1) of a_samples_t(0 to 1);
     signal samples_d_buf: samples_d_buf_t := (others => (others => (others => '0')));
@@ -87,6 +91,26 @@ architecture tdc_sample_prep_arch of tdc_sample_prep is
 
 begin
 
+-- input filter
+a_filter: entity work.sample_average
+port map (
+    clk => clk,
+    n => a_average,
+    samples_a_in => samples_a_in,
+    samples_a_out => samples_a_in_avg
+);
+process(clk)
+begin
+    if rising_edge(clk) then
+        for I in samples_a_in_avg'low to samples_a_in_avg'high loop
+            samples_a_in_filt(I) <= samples_a_in_avg(I);
+            if a_invert = '1' then
+                samples_a_in_filt(I).data <= -samples_a_in_avg(I).data;
+            end if;
+        end loop;
+    end if;
+end process;
+
 -- sample counter
 proc_sample_counter: process(clk)
     constant X: unsigned(CNT_BITS-1 downto 0) := (others => '1');
@@ -123,8 +147,8 @@ port map(
     max_pos         => max_pos,
     max_height      => max_height
 );
-max_samples_in(0) <= samples_a_in(0).data;
-max_samples_in(1) <= samples_a_in(1).data;
+max_samples_in(0) <= samples_a_in_filt(0).data;
+max_samples_in(1) <= samples_a_in_filt(1).data;
 a_event_int <= max_found;
 a_maxfound_int <= "0000" when a_event_int = '0' else
                   "1000" when max_pos = 0 else
@@ -145,8 +169,8 @@ begin
         samples_d_out <= samples_d_buf(samples_d_buf'high); 
         -- analog
         samples_a_buf(1 to samples_a_buf'high) <= samples_a_buf(0 to samples_a_buf'high-1);
-        for I in samples_a_in'low to samples_a_in'high loop
-            samples_a_buf(0)(I) <= samples_a_in(I).data;
+        for I in samples_a_in_filt'low to samples_a_in_filt'high loop
+            samples_a_buf(0)(I) <= samples_a_in_filt(I).data;
         end loop;
         samples_a_out <= samples_a_buf(samples_a_buf'high);
     end if;

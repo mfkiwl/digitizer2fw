@@ -70,6 +70,7 @@ architecture top_level_arch of top_level is
         clk_samples: in std_logic;
         LED1: out std_logic;
         LED2: out std_logic;
+        device_temp: in std_logic_vector(11 downto 0);
     
         -- usb communication
         comm_addr: in unsigned(5 downto 0);
@@ -77,6 +78,18 @@ architecture top_level_arch of top_level is
         comm_to_slave: in comm_to_slave_t;
         comm_from_slave: out comm_from_slave_t;
         comm_error: in std_logic;
+
+        -- ram interface
+        ram_calib_complete : in  std_logic;
+        ram_rdy            : in  std_logic;
+        ram_cmd            : out std_logic_vector(2 downto 0);
+        ram_en             : out std_logic;
+        ram_rd_data        : in  std_logic_vector(127 downto 0);
+        ram_rd_data_valid  : in  std_logic;
+        ram_wdf_rdy        : in  std_logic;
+        ram_wdf_data       : out std_logic_vector(127 downto 0);
+        ram_wdf_wren       : out std_logic;
+        ram_wdf_end        : out std_logic;
 
         -- analog pwr/enable/rst
         APWR_EN: out std_logic;
@@ -117,6 +130,64 @@ architecture top_level_arch of top_level is
     end component;
     signal clk_main: std_logic;
     signal clk_main_out, clk_ddr3_sys, clk_ddr3_ref, clk_usb: std_logic;
+
+    -- dram controller
+    component ddr3_controller
+    port (
+        ddr3_dq       : inout std_logic_vector(15 downto 0);
+        ddr3_dqs_p    : inout std_logic_vector(1 downto 0);
+        ddr3_dqs_n    : inout std_logic_vector(1 downto 0);
+        ddr3_addr     : out   std_logic_vector(13 downto 0);
+        ddr3_ba       : out   std_logic_vector(2 downto 0);
+        ddr3_ras_n    : out   std_logic;
+        ddr3_cas_n    : out   std_logic;
+        ddr3_we_n     : out   std_logic;
+        ddr3_reset_n  : out   std_logic;
+        ddr3_ck_p     : out   std_logic_vector(0 downto 0);
+        ddr3_ck_n     : out   std_logic_vector(0 downto 0);
+        ddr3_cke      : out   std_logic_vector(0 downto 0);
+        ddr3_odt      : out   std_logic_vector(0 downto 0);
+        app_addr            : in  std_logic_vector(27 downto 0);
+        app_cmd             : in  std_logic_vector(2 downto 0);
+        app_en              : in  std_logic;
+        app_wdf_data        : in  std_logic_vector(127 downto 0);
+        app_wdf_end         : in  std_logic;
+        app_wdf_wren        : in  std_logic;
+        app_rd_data         : out std_logic_vector(127 downto 0);
+        app_rd_data_end     : out std_logic;
+        app_rd_data_valid   : out std_logic;
+        app_rdy             : out std_logic;
+        app_wdf_rdy         : out std_logic;
+        app_sr_req          : in  std_logic;
+        app_ref_req         : in  std_logic;
+        app_zq_req          : in  std_logic;
+        app_sr_active       : out std_logic;
+        app_ref_ack         : out std_logic;
+        app_zq_ack          : out std_logic;
+        ui_clk              : out std_logic;
+        ui_clk_sync_rst     : out std_logic;
+        init_calib_complete : out std_logic;
+        -- System Clock Ports 
+        sys_clk_i           : in  std_logic;
+        -- Reference Clock Ports
+        clk_ref_i           : in  std_logic;
+        device_temp_o       : out std_logic_vector(11 downto 0);
+        sys_rst             : in  std_logic
+    );
+    end component;
+    signal clk_ddr3_app            : std_logic;
+    signal ram_init_calib_complete : std_logic;
+    signal ram_sys_rst             : std_logic := '1';
+    signal ram_app_rdy             : std_logic;
+    signal ram_app_cmd             : std_logic_vector(2 downto 0);
+    signal ram_app_en              : std_logic;
+    signal ram_app_rd_data         : std_logic_vector(127 downto 0);
+    signal ram_app_rd_data_valid   : std_logic;
+    signal ram_app_wdf_rdy         : std_logic;
+    signal ram_app_wdf_data        : std_logic_vector(127 downto 0);
+    signal ram_app_wdf_wren        : std_logic;
+    signal ram_app_wdf_end         : std_logic;
+    signal device_temp             : std_logic_vector(11 downto 0);
 
     -- adc serial programming
     component adc_program
@@ -177,7 +248,7 @@ architecture top_level_arch of top_level is
 begin
 
 GND <= (others => '0');
-clk_main <= clk_main_out;
+clk_main <= clk_ddr3_app;
 
 clk_core_main_inst: clk_core_main
 port map (
@@ -190,6 +261,51 @@ clk_core_usb_inst: clk_core_usb
 port map (
     clk_in => USB_CLKOUT,
     clk_usb => clk_usb
+);
+
+ddr3_controller_inst : ddr3_controller
+port map (
+    -- Memory interface ports
+    ddr3_addr                      => ddr3_addr,
+    ddr3_ba                        => ddr3_ba,
+    ddr3_cas_n                     => ddr3_cas_n,
+    ddr3_ck_n                      => ddr3_ck_n,
+    ddr3_ck_p                      => ddr3_ck_p,
+    ddr3_cke                       => ddr3_cke,
+    ddr3_ras_n                     => ddr3_ras_n,
+    ddr3_reset_n                   => ddr3_reset_n,
+    ddr3_we_n                      => ddr3_we_n,
+    ddr3_dq                        => ddr3_dq,
+    ddr3_dqs_n                     => ddr3_dqs_n,
+    ddr3_dqs_p                     => ddr3_dqs_p,
+    init_calib_complete            => ram_init_calib_complete,
+    ddr3_odt                       => ddr3_odt,
+    -- Application interface ports
+    app_addr                       => (others => '0'),
+    app_cmd                        => ram_app_cmd,
+    app_en                         => ram_app_en,
+    app_wdf_data                   => ram_app_wdf_data,
+    app_wdf_end                    => ram_app_wdf_end,
+    app_wdf_wren                   => ram_app_wdf_wren,
+    app_rd_data                    => ram_app_rd_data,
+    app_rd_data_end                => open,
+    app_rd_data_valid              => ram_app_rd_data_valid,
+    app_rdy                        => ram_app_rdy,
+    app_wdf_rdy                    => ram_app_wdf_rdy,
+    app_sr_req                     => '0',
+    app_ref_req                    => '0',
+    app_zq_req                     => '0',
+    app_sr_active                  => open,
+    app_ref_ack                    => open,
+    app_zq_ack                     => open,
+    ui_clk                         => clk_ddr3_app,
+    ui_clk_sync_rst                => open,
+    -- System Clock Ports
+    sys_clk_i                      => clk_ddr3_sys,
+    -- Reference Clock Ports
+    clk_ref_i                      => clk_ddr3_ref,
+    device_temp_o                  => device_temp,
+    sys_rst                        => ram_sys_rst
 );
 
 adc_program_inst: adc_program
@@ -247,6 +363,7 @@ port map (
     clk_samples => clk_samples,
     LED1 => LED1,
     LED2 => LED2,
+    device_temp => device_temp,
 
     -- usb communication
     comm_addr => comm_addr,
@@ -254,6 +371,18 @@ port map (
     comm_to_slave => comm_to_slave,
     comm_from_slave => comm_from_slave,
     comm_error => comm_error,
+
+    -- ram interface
+    ram_calib_complete => ram_init_calib_complete,
+    ram_rdy => ram_app_rdy,
+    ram_cmd => ram_app_cmd,
+    ram_en => ram_app_en,
+    ram_rd_data => ram_app_rd_data,
+    ram_rd_data_valid => ram_app_rd_data_valid,
+    ram_wdf_rdy => ram_app_wdf_rdy,
+    ram_wdf_data => ram_app_wdf_data,
+    ram_wdf_wren => ram_app_wdf_wren,
+    ram_wdf_end => ram_app_wdf_end,
 
     -- analog pwr/enable/rst
     APWR_EN => APWR_EN,

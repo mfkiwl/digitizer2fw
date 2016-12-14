@@ -11,6 +11,7 @@ port (
     clk_samples: in std_logic;
     LED1: out std_logic;
     LED2: out std_logic;
+    device_temp: in std_logic_vector(11 downto 0);
 
     -- usb communication
     comm_addr: in unsigned(5 downto 0);
@@ -18,6 +19,18 @@ port (
     comm_to_slave: in comm_to_slave_t;
     comm_from_slave: out comm_from_slave_t;
     comm_error: in std_logic;
+
+    -- ram interface
+    ram_calib_complete : in  std_logic;
+    ram_rdy            : in  std_logic;
+    ram_cmd            : out std_logic_vector(2 downto 0);
+    ram_en             : out std_logic;
+    ram_rd_data        : in  std_logic_vector(127 downto 0);
+    ram_rd_data_valid  : in  std_logic;
+    ram_wdf_rdy        : in  std_logic;
+    ram_wdf_data       : out std_logic_vector(127 downto 0);
+    ram_wdf_wren       : out std_logic;
+    ram_wdf_end        : out std_logic;
 
     -- analog pwr/enable/rst
     APWR_EN: out std_logic;
@@ -41,14 +54,25 @@ end application;
 
 architecture application_arch of application is
 
+    -- clock domain crossing
+    component slow_cdc_bit
+    port (clk: in std_logic; din: in std_logic; dout: out std_logic);
+    end component;
+    component slow_cdc_bits
+    port (clk: in std_logic; din: in std_logic_vector; dout: out std_logic_vector);
+    end component;
+
     -- sample processing for TDC
+    constant TDC_CNT_BITS: natural := 22;
     component tdc_sample_prep
-    generic (CNT_BITS: natural := 16);
+    generic (CNT_BITS: natural := TDC_CNT_BITS);
     port (
         clk : in std_logic;
         samples_d_in : in din_samples_t( 0 to 3 );
         samples_a_in : in adc_samples_t( 0 to 1 );
         a_threshold : in a_sample_t;
+        a_invert: in std_logic;
+        a_average: in std_logic_vector(1 downto 0);
         samples_d_out : out din_samples_t( 0 to 3 );
         samples_a_out : out a_samples_t( 0 to 1 );
         cnt : out unsigned( CNT_BITS - 1 downto 0 );
@@ -59,17 +83,35 @@ architecture application_arch of application is
         events : out std_logic_vector( 3 downto 0 )
     );
     end component;
-    signal tdc_a_threshold, tdc_a_threshold_buf: a_sample_t := (others => '0');
+    signal tdc_a_invert : std_logic := '0';
+    signal tdc_a_average : std_logic_vector(1 downto 0) := (others => '0');
+    signal tdc_a_threshold_cd1, tdc_a_threshold_cd2: a_sample_t := (others => '0');
+    signal tdc_a_threshold_cd2slv: std_logic_vector(a_sample_t'range) := (others => '0');
     signal tdc_d : din_samples_t ( 0 to 3 );
     signal tdc_a : a_samples_t ( 0 to 1 );
-    signal tdc_cnt : unsigned ( 15 downto 0 );
+    signal tdc_cnt : unsigned ( TDC_CNT_BITS-1 downto 0 );
     signal tdc_d1_rising : std_logic_vector( 3 downto 0 );
     signal tdc_d2_rising : std_logic_vector( 3 downto 0 );
     signal tdc_a_maxfound : std_logic_vector( 3 downto 0 );
     signal tdc_a_maxvalue : a_sample_t;
     signal tdc_events : std_logic_vector( 3 downto 0 );
+    
+    -- convert flat event vector to a single event encoded as valid flag + position. extract first event only.
+    function flat_event_to_valid_pos(flat: std_logic_vector(3 downto 0)) return std_logic_vector is
+        variable valid: std_logic := '0';
+        variable pos: unsigned(1 downto 0) := (others => '-');
+    begin
+        for I in 0 to 3 loop
+            if flat(I) = '1' then
+                valid := '1';
+                pos := to_unsigned(3-I, 2);
+            end if;
+        end loop;
+        return valid & std_logic_vector(pos);
+    end flat_event_to_valid_pos;
 
     -- acquisition fifo buffer
+    constant ACQ_BUFFER_CNT_BITS: natural := 16;
     component fifo_adc_core
     port (
         rst: in std_logic;
@@ -81,12 +123,12 @@ architecture application_arch of application is
         dout : out std_logic_vector(15 downto 0);
         full: out std_logic;
         empty: out std_logic;
-        rd_data_count: out std_logic_vector(14 downto 0)
+        rd_data_count: out std_logic_vector(ACQ_BUFFER_CNT_BITS-1 downto 0)
     );
     end component;
     signal acq_buffer_din: std_logic_vector(31 downto 0);
     signal acq_buffer_dout: std_logic_vector(15 downto 0);
-    signal acq_buffer_count: std_logic_vector(14 downto 0);
+    signal acq_buffer_count: std_logic_vector(ACQ_BUFFER_CNT_BITS-1 downto 0);
     signal acq_buffer_rst: std_logic;
     signal acq_buffer_full: std_logic;
     signal acq_buffer_empty: std_logic;
@@ -95,23 +137,26 @@ architecture application_arch of application is
     
     signal acq_buffer_din_valid : std_logic := '0';
     signal acq_data_select : std_logic_vector(1 downto 0) := (others => '0');
-    signal acq_trigger_mask : std_logic_vector(3 downto 0) := (others => '0');
-    signal acq_reset : std_logic := '0';
+    signal acq_start_trig_mask : std_logic_vector(3 downto 0) := (others => '0');
+    signal acq_stop_trig_en : std_logic_vector(1 downto 0) := (others => '0');
+    signal acq_reset_soft : std_logic := '0';
+    signal acq_stop_soft: std_logic := '0';
+    signal acq_state_cdc, acq_state_toglobal : std_logic_vector(2 downto 0) := (others => '0');
 
     -- communication signals/registers
-    signal comm_to_global, comm_to_adcprog, comm_to_acqbuf: comm_to_slave_t;
-    signal comm_from_global, comm_from_adcprog, comm_from_acqbuf: comm_from_slave_t;
+    signal comm_to_global, comm_to_ram, comm_to_adcprog, comm_to_acqbuf: comm_to_slave_t;
+    signal comm_from_global, comm_from_ram, comm_from_adcprog, comm_from_acqbuf: comm_from_slave_t;
     
     -- global registers
     signal global_status: std_logic_vector(2 downto 0);
-    signal global_cmd: std_logic_vector(15 downto 0) := (others => '0');
-    signal global_conf: std_logic_vector(15 downto 0) := (others => '0');
+    signal global_conf, global_conf_cdc: std_logic_vector(15 downto 0) := (others => '0');
+    signal acq_conf, acq_conf_cdc: std_logic_vector(15 downto 0) := (others => '0');
 
-    constant VERSION: natural := 152;
+    constant VERSION: natural := 159;
 begin
 
-LED1 <= '0';
-LED2 <= '0';
+LED1 <= tdc_d(0)(0);
+LED2 <= tdc_d(0)(1);
 
 -- communication slave select
 slave_select: process(comm_addr, comm_to_slave, comm_from_global, comm_from_adcprog, comm_from_acqbuf)
@@ -120,6 +165,7 @@ slave_select: process(comm_addr, comm_to_slave, comm_from_global, comm_from_adcp
 begin
     -- no read/write requests to unselected slaves
     comm_to_global <= not_selected;
+    comm_to_ram <= not_selected;
     comm_to_adcprog <= not_selected;
     comm_to_acqbuf <= not_selected;
     -- don't stall when reading from invalid slave address, no error reporting
@@ -129,6 +175,9 @@ begin
         when 0 =>
             comm_to_global <= comm_to_slave;
             comm_from_slave <= comm_from_global;
+        when 2 =>
+            comm_to_ram <= comm_to_slave;
+            comm_from_slave <= comm_from_ram;
         when 3 =>
             comm_to_adcprog <= comm_to_slave;
             comm_from_slave <= comm_from_adcprog;
@@ -147,11 +196,20 @@ begin
 
     case to_integer(comm_port) is
         when 0 =>
+            -- read global configuration register
             comm_from_global.data_rd(global_conf'range) <= global_conf;
         when 1 =>
+            -- read global status register
             comm_from_global.data_rd(global_status'range) <= global_status;
         when 3 =>
+            -- read version
             comm_from_global.data_rd <= std_logic_vector(to_unsigned(VERSION, 16));
+        when 5 =>
+            -- read acquisition configuration register
+            comm_from_global.data_rd(acq_conf'range) <= acq_conf;
+        when 6 =>
+            -- read device temperature
+            comm_from_global.data_rd(device_temp'range) <= device_temp;
         when others =>
             null;
     end case;
@@ -162,7 +220,7 @@ global_registers: process(clk_main)
 begin
     if rising_edge(clk_main) then
         -- update status registers
-        global_status(2 downto 0) <= (others => '0');  -- dram status bits (reserved)
+        global_status <= acq_state_cdc;  -- TODO: more to follow
         
         -- write register 0 (global_conf)
         if comm_to_global.wr_req = '1' and to_integer(comm_port) = 0 then
@@ -170,17 +228,92 @@ begin
         end if;
         -- write register 4 (threshold)
         if comm_to_global.wr_req = '1' and to_integer(comm_port) = 4 then
-            tdc_a_threshold <= signed(comm_to_global.data_wr(tdc_a_threshold'range));
+            tdc_a_threshold_cd1 <= signed(comm_to_global.data_wr(tdc_a_threshold_cd1'range));
+        end if;
+        -- write register 5 (acquisition conf)
+        if comm_to_global.wr_req = '1' and to_integer(comm_port) = 5 then
+            acq_conf <= comm_to_global.data_wr(acq_conf'range);
         end if;
     end if;
 end process;
+sync_global_conf: slow_cdc_bits
+port map (
+    clk => clk_samples,
+    din => global_conf,
+    dout => global_conf_cdc
+);
+sync_acq_conf: slow_cdc_bits
+port map (
+    clk => clk_samples,
+    din => acq_conf,
+    dout => acq_conf_cdc
+);
+
+-- global conf mapping
 APWR_EN <= global_conf(1);
 ADC_SRESETB <= not global_conf(2);
 ADC_ENABLE <= global_conf(3);
-sampling_rst <= global_conf(4);
-acq_reset <= global_conf(5);
-acq_data_select <= global_conf(7 downto 6);
-acq_trigger_mask <= global_conf(11 downto 8);
+sampling_rst <= global_conf_cdc(4);
+tdc_a_average <= global_conf_cdc(14 downto 13);
+tdc_a_invert <= global_conf_cdc(15);
+
+-- acquisition conf mapping
+acq_reset_soft <= acq_conf_cdc(0);
+acq_stop_soft <= acq_conf_cdc(1);
+acq_data_select <= acq_conf_cdc(3 downto 2);
+acq_start_trig_mask <= acq_conf_cdc(7 downto 4);
+acq_stop_trig_en <= acq_conf_cdc(9 downto 8);
+
+-- ram comm slave
+process(clk_main)
+    constant RAM_CMD_WR: std_logic_vector(2 downto 0) := "000";
+    constant RAM_CMD_RD: std_logic_vector(2 downto 0) := "001";
+    variable n: integer;
+    variable ram_rd_data_last: std_logic_vector(ram_rd_data'range) := (others => '0');
+begin
+    if rising_edge(clk_main) then
+        -- default, no ram activity, no comm answer
+        comm_from_ram <= (rd_ack => '0', wr_ack => '0', data_rd => (others => '-'));
+        ram_en <= '0';
+        ram_wdf_wren <= '0';
+        ram_wdf_end <= '0';
+
+        n := to_integer(comm_port);
+        if (n < 8) then
+            -- write to ram_wr buffer or read from last ram word
+            if comm_to_ram.wr_req = '1' then
+                -- write word to ram write buffer
+                ram_wdf_data(((n+1)*16-1) downto (n*16)) <= comm_to_ram.data_wr;
+                comm_from_ram.wr_ack <= '1';
+            elsif comm_to_ram.rd_req = '1' then
+                -- read word from ram read buffer
+                comm_from_ram.data_rd <= ram_rd_data_last(((n+1)*16-1) downto (n*16));
+                comm_from_ram.rd_ack <= '1';
+            end if;
+        else
+            -- send read or write command to ram
+            if comm_to_ram.wr_req = '1' then
+                comm_from_ram.wr_ack <= '1';
+                if comm_to_ram.data_wr(0) = '0' then
+                    -- ram write command
+                    ram_wdf_wren <= '1';
+                    ram_wdf_end <= '1';
+                    ram_cmd <= RAM_CMD_WR;
+                    ram_en <= '1';
+                else
+                    -- ram read command
+                    ram_cmd <= RAM_CMD_RD;
+                    ram_en <= '1';
+                end if;
+            end if;
+        end if;
+        
+        -- store last word from ram
+        if (ram_rd_data_valid = '1') then
+            ram_rd_data_last := ram_rd_data;
+        end if;
+    end if;
+end process;
 
 -- adc programming requests
 adc_program_reg: process(clk_main)
@@ -215,12 +348,22 @@ comm_from_adcprog.data_rd <= adc_prog_dout;
 
 --------------------------------------------------------------------------------
 
+sync_a_threshold: slow_cdc_bits
+port map (
+    clk => clk_samples,
+    din => std_logic_vector(tdc_a_threshold_cd1),
+    dout => tdc_a_threshold_cd2slv
+);
+tdc_a_threshold_cd2 <= signed(tdc_a_threshold_cd2slv);
+
 tdc_sample_prep_inst: tdc_sample_prep
 port map(
     clk           => clk_samples,
     samples_d_in  => samples_d,
     samples_a_in  => samples_a,
-    a_threshold   => tdc_a_threshold_buf,
+    a_threshold   => tdc_a_threshold_cd2,
+    a_invert      => tdc_a_invert,
+    a_average     => tdc_a_average,
     samples_d_out => tdc_d,
     samples_a_out => tdc_a,
     cnt           => tdc_cnt,
@@ -231,34 +374,45 @@ port map(
     events        => tdc_events
 );
 
-
-acquisition_process: process(clk_samples)
-    variable acq_data_select_buf: std_logic_vector(acq_data_select'range) := (others => '0');
-    variable acq_trigger_mask_buf: std_logic_vector(acq_trigger_mask'range) := (others => '0');
-    variable acq_reset_buf: std_logic := '1';
-    
+acquisition_process: process(clk_samples)    
     type acq_state_t is (s_reset, s_wait_ready, s_waittrig, s_buffering, s_done);
     variable acq_state: acq_state_t := s_reset;
-    variable trigger: boolean := false;
+    variable start_trig: boolean := false;
+    variable stop_trig: boolean := false;
 begin
     if rising_edge(clk_samples) then
-        -- reset fifo when in reset state
+        -- write state to global register, converted to unsigned
+        acq_state_toglobal <= std_logic_vector(to_unsigned(acq_state_t'pos(acq_state), 3));
+
+        -- reset acquisition fifo in reset state
         if acq_state = s_reset then
             acq_buffer_rst <= '1';
         else
             acq_buffer_rst <= '0';
         end if;
-        
-        -- evaluate trigger conditions
-        trigger := false;
+
+        -- start trigger (non masked events)
+        start_trig := false;
         for I in 0 to 3 loop
-            if tdc_events(I) = '1' and acq_trigger_mask_buf(I) = '0' then
-                trigger := true;
+            if tdc_events(I) = '1' and acq_start_trig_mask(I) = '0' then
+                start_trig := true;
             end if;
         end loop;
 
+        -- stop trigger (enabled events)
+        stop_trig := false;
+        if acq_stop_soft = '1' then
+            stop_trig := true;
+        end if;
+        if tdc_events(2) = '1' and acq_stop_trig_en(1) = '1' then
+            stop_trig := true;
+        end if;
+        if tdc_events(1) = '1' and acq_stop_trig_en(0) = '1' then
+            stop_trig := true;
+        end if;
+
         -- state machine
-        if acq_reset_buf = '1' then
+        if acq_reset_soft = '1' then
             -- always go to reset state when acq_reset is high
             acq_state := s_reset;
         else
@@ -271,11 +425,11 @@ begin
                         acq_state := s_waittrig;
                     end if;
                 when s_waittrig =>
-                    if trigger then
+                    if start_trig then
                         acq_state := s_buffering;
                     end if;
                 when s_buffering =>
-                    if acq_buffer_full = '1' then
+                    if acq_buffer_full = '1' or stop_trig then
                         acq_state := s_done;
                     end if;
                 when others =>
@@ -284,7 +438,7 @@ begin
         end if;
         
         -- select signals for fifo input
-        case acq_data_select_buf is
+        case acq_data_select is
         when "00" =>
             -- raw sample mode (digital + analog)
             acq_buffer_din <= tdc_d(0)(0) & tdc_d(1)(0) & tdc_d(2)(0) & tdc_d(3)(0) & std_logic_vector(tdc_a(0)) &
@@ -297,27 +451,37 @@ begin
             acq_buffer_din_valid <= '1';
         when "10" =>
             -- TDC mode (counter + events)
-            acq_buffer_din <= tdc_events & tdc_a_maxfound & tdc_d1_rising & tdc_d2_rising &
-                              std_logic_vector(tdc_cnt);
-            acq_buffer_din_valid <= tdc_events(0) or tdc_events(1) or tdc_events(2) or tdc_events(3);
+            acq_buffer_din <= tdc_events(3) &                           -- overflow(31)
+                              flat_event_to_valid_pos(tdc_a_maxfound) & -- valid(30) + pos(29-28)
+                              flat_event_to_valid_pos(tdc_d1_rising) &  -- valid(27) + pos(26-25)
+                              flat_event_to_valid_pos(tdc_d2_rising) &  -- valid(24) + pos(23-22)
+                              std_logic_vector(tdc_cnt);                -- cnt(21-0)
+            acq_buffer_din_valid <= tdc_events(3) or tdc_events(2) or tdc_events(1) or tdc_events(0);
         when others =>
-            acq_buffer_din <= (others => '-');
-            acq_buffer_din_valid <= '0';
+            -- TDC + height mode (counter + maxvalue)
+            acq_buffer_din <= (others => '0');
+            if tdc_events(0) = '1' then
+                -- use only the last 10 bits from maxvalue (unsigned 10bit)
+                acq_buffer_din(31 downto 22) <= std_logic_vector(tdc_a_maxvalue(9 downto 0));
+            end if;
+            acq_buffer_din(21 downto 0) <= std_logic_vector(tdc_cnt);
+            acq_buffer_din_valid <= tdc_events(3) or tdc_events(0);
         end case;
         
         -- override data valid if not in buffering state
         if acq_state /= s_buffering then
             acq_buffer_din_valid <= '0';
         end if;
-
-        -- register slow signals from main in sample clk domain
-        acq_data_select_buf := acq_data_select;
-        acq_trigger_mask_buf := acq_trigger_mask;
-        tdc_a_threshold_buf <= tdc_a_threshold;
-        acq_reset_buf := acq_reset;
     end if;
 end process;
 acq_buffer_wr <= acq_buffer_din_valid;
+
+sync_acq_state: slow_cdc_bits
+port map (
+    clk => clk_main,
+    din => acq_state_toglobal,
+    dout => acq_state_cdc
+);
 
 fifo_acq_inst: fifo_adc_core
 port map (

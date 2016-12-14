@@ -81,11 +81,11 @@ begin
             samples_a_out(0).data <= samples_a_in(0).data;
             samples_a_out(1).data <= samples_a_in(1).data;
         when "01" =>
-            samples_a_out(0).data <= std_logic_vector(s1_samples(2));
-            samples_a_out(1).data <= std_logic_vector(s1_samples(3));
+            samples_a_out(0).data <= signed(s1_samples(2));
+            samples_a_out(1).data <= signed(s1_samples(3));
         when "10" =>
-            samples_a_out(0).data <= std_logic_vector(s2_samples(0));
-            samples_a_out(1).data <= std_logic_vector(s2_samples(1));
+            samples_a_out(0).data <= signed(s2_samples(0));
+            samples_a_out(1).data <= signed(s2_samples(1));
         when others =>
             samples_a_out(0).data <= (others => '-');
             samples_a_out(1).data <= (others => '-');

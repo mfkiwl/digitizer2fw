@@ -114,7 +114,7 @@ begin
             max_height <= s1_sample_avg;
         else
             max_pos <= (others => '-');
-            max_height <= (others => '-');
+            max_height <= (others => '0');
         end if;
     end if;
 end process;
@@ -129,7 +129,7 @@ generic map (
     N_WINDOW_LENGTH => 2,
     N_OUTPUTS => 1,
     N_SAMPLE_BITS => ADC_SAMPLE_BITS,
-    SYNC_STAGE1 => FALSE,
+    SYNC_STAGE1 => TRUE,
     SYNC_STAGE2 => TRUE,
     SYNC_STAGE3 => TRUE
 )

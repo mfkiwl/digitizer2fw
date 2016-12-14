@@ -1,6 +1,7 @@
 import numpy as np
 import time
 REG_CONFIG = (0, 0)
+REG_CONFIG_ACQ = (0, 5)
 REG_STATUS = (0, 1)
 REG_VERSION = (0, 3)
 REG_A_THRESHOLD = (0, 4)
@@ -19,25 +20,35 @@ class Digitizer2Mixin(object):
 
     @staticmethod
     def __status_to_dict(status_val):
+        status_str = "s_reset, s_wait_ready, s_waittrig, s_buffering, s_done".split(", ")[status_val]
         return {
-            "init_calib_complete": bool(status_val & (1 << 0)),
-            "ram_app_rdy": bool(status_val & (1 << 1)),
-            "ram_app_wdf_rdy": bool(status_val & (1 << 2)),
+            "acq_state": status_str
         }
 
     ###################################################
 
+    def _read_reg_bit(self, addr, port, bit):
+        value = self.read_reg(addr, port)
+        return bool(value & (1 << bit))
+
+    def _write_reg_bit(self, addr, port, bit, enabled):
+        value = self.read_reg(addr, port)
+        if enabled:
+            value |= (1 << bit)
+        else:
+            value &= ~(1 << bit)
+        self.write_reg(addr, port, value)
+
     def get_config_bit(self, bit):
-        conf_val = self.read_reg(*REG_CONFIG)
-        return bool(conf_val & (1 << bit))
+        return self._read_reg_bit(REG_CONFIG[0], REG_CONFIG[1], bit)
 
     def set_config_bit(self, bit, enabled):
-        conf_val = self.read_reg(*REG_CONFIG)
-        if enabled:
-            conf_val |= (1 << bit)
-        else:
-            conf_val &= ~(1 << bit)
-        self.write_reg(REG_CONFIG[0], REG_CONFIG[1], conf_val)
+        self._write_reg_bit(REG_CONFIG[0], REG_CONFIG[1], bit, enabled)
+
+    ###################################################
+
+    def device_temperature(self):
+        return self.read_reg(0, 6)
 
     ###################################################
 
@@ -123,27 +134,35 @@ class Digitizer2Mixin(object):
         time.sleep(0.01)
         self._sampling_rst(False)
 
-    def _acq_reset(self, enabled):
-        self.set_config_bit(5, enabled)
-
-    def acq_data_select(self, source):
-        self.set_config_bit(6, source & 0b01)
-        self.set_config_bit(7, source & 0b10)
-
-    def acq_trigger_mask(self, no_cnt=False, no_d1=True, no_d2=True, no_a=True):
-        self.set_config_bit(11, no_cnt)
-        self.set_config_bit(10, no_d1)
-        self.set_config_bit(9, no_d2)
-        self.set_config_bit(8, no_a)
+    def _set_acq_conf_bit(self, bit, enabled):
+        self._write_reg_bit(REG_CONFIG_ACQ[0], REG_CONFIG_ACQ[1], bit, enabled)
 
     def acq_reset(self):
-        self._acq_reset(True)
-        self._acq_reset(False)
+        self._set_acq_conf_bit(0, True)
+        self._set_acq_conf_bit(0, False)
+
+    def acq_stop(self):
+        self._set_acq_conf_bit(1, True)
+        self._set_acq_conf_bit(1, False)
+
+    def acq_data_select(self, source):
+        self._set_acq_conf_bit(2, source & 0b01)
+        self._set_acq_conf_bit(3, source & 0b10)
+
+    def acq_start_trig_mask(self, no_cnt=False, no_d1=True, no_d2=True, no_a=True):
+        self._set_acq_conf_bit(7, no_cnt)
+        self._set_acq_conf_bit(6, no_d1)
+        self._set_acq_conf_bit(5, no_d2)
+        self._set_acq_conf_bit(4, no_a)
+
+    def acq_stop_trig_en(self, en_d1=False, en_d2=False):
+        self._set_acq_conf_bit(9, en_d1)
+        self._set_acq_conf_bit(8, en_d2)
 
     def acq_buffer_count(self):
         return self.read_reg(PORT_ACQBUF, 0)
 
-    def adc_buffer_read(self):
+    def acq_buffer_read(self):
         # read buffer
         n = self.acq_buffer_count()
         data = self.read_reg_n(PORT_ACQBUF, 1, n)
@@ -154,22 +173,29 @@ class Digitizer2Mixin(object):
         value_u16 = int(np.int16(value).view(np.uint16))
         self.write_reg(REG_A_THRESHOLD[0], REG_A_THRESHOLD[1], value_u16)
 
-    ###################################################
-    """
-    def init_ram_buf(self):
-        for i in range(8):
-            self.write_ram_buf(i, i+1)
+    def tdc_a_average(self, value):
+        assert 0 <= value <= 2
+        self.set_config_bit(13, value & 0b01)
+        self.set_config_bit(14, value & 0b10)
 
-    def write_ram_buf(self, i, word):
+    def tdc_a_invert(self, invert):
+        self.set_config_bit(15, invert)
+
+    ###################################################
+
+    def ram_buffer_init(self):
+        for i in range(8):
+            self.ram_buffer_write(i, i+1)
+
+    def ram_buffer_write(self, i, word):
         assert i < 8
         self.write_reg(PORT_RAM, i, word)
 
-    def read_ram_buf(self):
+    def ram_buffer_read(self):
         return [self.read_reg(PORT_RAM, i) for i in range(8)]
 
-    def ram_write(self):
+    def ram_write_cmd(self):
         self.write_reg(PORT_RAM, 8, 0)
 
-    def ram_read(self):
+    def ram_read_cmd(self):
         self.write_reg(PORT_RAM, 8, 1)
-    """

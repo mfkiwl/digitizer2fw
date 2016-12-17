@@ -82,6 +82,7 @@ architecture top_level_arch of top_level is
         -- ram interface
         ram_calib_complete : in  std_logic;
         ram_rdy            : in  std_logic;
+        ram_addr           : out std_logic_vector(27 downto 0);
         ram_cmd            : out std_logic_vector(2 downto 0);
         ram_en             : out std_logic;
         ram_rd_data        : in  std_logic_vector(127 downto 0);
@@ -179,6 +180,7 @@ architecture top_level_arch of top_level is
     signal ram_init_calib_complete : std_logic;
     signal ram_sys_rst             : std_logic := '1';
     signal ram_app_rdy             : std_logic;
+    signal ram_app_addr            : std_logic_vector(27 downto 0);
     signal ram_app_cmd             : std_logic_vector(2 downto 0);
     signal ram_app_en              : std_logic;
     signal ram_app_rd_data         : std_logic_vector(127 downto 0);
@@ -281,7 +283,7 @@ port map (
     init_calib_complete            => ram_init_calib_complete,
     ddr3_odt                       => ddr3_odt,
     -- Application interface ports
-    app_addr                       => (others => '0'),
+    app_addr                       => ram_app_addr,
     app_cmd                        => ram_app_cmd,
     app_en                         => ram_app_en,
     app_wdf_data                   => ram_app_wdf_data,
@@ -375,6 +377,7 @@ port map (
     -- ram interface
     ram_calib_complete => ram_init_calib_complete,
     ram_rdy => ram_app_rdy,
+    ram_addr => ram_app_addr,
     ram_cmd => ram_app_cmd,
     ram_en => ram_app_en,
     ram_rd_data => ram_app_rd_data,

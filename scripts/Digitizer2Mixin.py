@@ -194,8 +194,12 @@ class Digitizer2Mixin(object):
     def ram_buffer_read(self):
         return [self.read_reg(PORT_RAM, i) for i in range(8)]
 
+    def ram_write_addr(self, addr):
+        self.write_reg(PORT_RAM, 8, addr & 0xffff)
+        self.write_reg(PORT_RAM, 9, (addr >> 16) & 0x0fff)
+
     def ram_write_cmd(self):
-        self.write_reg(PORT_RAM, 8, 0)
+        self.write_reg(PORT_RAM, 10, 0)
 
     def ram_read_cmd(self):
-        self.write_reg(PORT_RAM, 8, 1)
+        self.write_reg(PORT_RAM, 10, 1)

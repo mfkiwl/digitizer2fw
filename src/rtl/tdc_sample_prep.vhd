@@ -15,6 +15,7 @@ use ieee.numeric_std.all;
 
 use work.sampling_pkg.all;
 use work.maxfinder_pkg.all;
+use work.tdc_sample_prep_pkg.all;
 
 entity tdc_sample_prep is
 generic (
@@ -31,11 +32,7 @@ port (
     samples_d_out: out din_samples_t(0 to 3);
     samples_a_out: out a_samples_t(0 to 1);
     cnt: out unsigned(CNT_BITS-1 downto 0);
-    d1_risings: out std_logic_vector(3 downto 0);
-    d2_risings: out std_logic_vector(3 downto 0);
-    a_maxfound: out std_logic_vector(3 downto 0);
-    a_maxvalue: out a_sample_t;
-    events: out std_logic_vector(3 downto 0)
+    tdc_events: out tdc_events_t
 );
 end tdc_sample_prep;
 
@@ -53,19 +50,19 @@ architecture tdc_sample_prep_arch of tdc_sample_prep is
 
     -- sample counter
     signal sample_cnt_int: unsigned(CNT_BITS-1 downto 0) := (others => '0');
-    signal cnt_event_int: std_logic := '0';
 
     -- digital processing
-    component rising_edge_detect
+    component digital_edge_detect
     port (
         clk: in std_logic;
         samples_d: in din_samples_t(0 to 3);
-        edges_d: out din_samples_t(0 to 3)
+        rising_d: out din_samples_t(0 to 3);
+        falling_d: out din_samples_t(0 to 3)
     );
     end component;
-    signal edges_d: din_samples_t(0 to 3);
-    signal d1_risings_int, d2_risings_int: std_logic_vector(3 downto 0) := (others => '0');
-    signal d1_event_int, d2_event_int: std_logic := '0';
+    signal rising_d, falling_d: din_samples_t(0 to 3);
+    signal d1_rising_int, d1_falling_int: std_logic_vector(3 downto 0) := (others => '0');
+    signal d2_rising_int, d2_falling_int: std_logic_vector(3 downto 0) := (others => '0');
     
     -- analog processing
     component maxfinder_simple
@@ -86,8 +83,7 @@ architecture tdc_sample_prep_arch of tdc_sample_prep is
     signal max_found: std_logic;
     signal max_pos: unsigned(1 downto 0) := (others => '0');
     signal max_height: a_sample_t := (others => '0');
-    signal a_maxfound_int: std_logic_vector(3 downto 0) := (others => '0');
-    signal a_event_int: std_logic := '0';
+    signal a_maxfound_int: tdc_event_t;
 
 begin
 
@@ -116,26 +112,22 @@ proc_sample_counter: process(clk)
     constant X: unsigned(CNT_BITS-1 downto 0) := (others => '1');
 begin
     if rising_edge(clk) then
-        if sample_cnt_int = X then
-            cnt_event_int <= '1';
-        else
-            cnt_event_int <= '0';
-        end if;
         sample_cnt_int <= sample_cnt_int + 1;
     end if;
 end process;
 
 -- digital rising edges
-rising_edge_detect_inst: rising_edge_detect
+digital_edge_detect_inst: digital_edge_detect
 port map(
     clk       => clk,
     samples_d => samples_d_in,
-    edges_d   => edges_d
+    rising_d  => rising_d,
+    falling_d => falling_d 
 );
-d1_risings_int <= edges_d(0)(0) & edges_d(1)(0) & edges_d(2)(0) & edges_d(3)(0);
-d2_risings_int <= edges_d(0)(1) & edges_d(1)(1) & edges_d(2)(1) & edges_d(3)(1); 
-d1_event_int <= '0' when d1_risings_int = "0000" else '1';
-d2_event_int <= '0' when d2_risings_int = "0000" else '1';
+d1_rising_int <= rising_d(0)(0) & rising_d(1)(0) & rising_d(2)(0) & rising_d(3)(0);
+d2_rising_int <= rising_d(0)(1) & rising_d(1)(1) & rising_d(2)(1) & rising_d(3)(1);
+d1_falling_int <= falling_d(0)(0) & falling_d(1)(0) & falling_d(2)(0) & falling_d(3)(0);
+d2_falling_int <= falling_d(0)(1) & falling_d(1)(1) & falling_d(2)(1) & falling_d(3)(1);
 
 -- analog maximum finder
 maxfinder_inst: maxfinder_simple
@@ -149,17 +141,12 @@ port map(
 );
 max_samples_in(0) <= samples_a_in_filt(0).data;
 max_samples_in(1) <= samples_a_in_filt(1).data;
-a_event_int <= max_found;
-a_maxfound_int <= "0000" when a_event_int = '0' else
-                  "1000" when max_pos = 0 else
-                  "0100" when max_pos = 1 else
-                  "0010" when max_pos = 2 else
-                  "0001";
+a_maxfound_int <= (valid => max_found, pos => max_pos);
 
 --------------------------------------------------------------------------------
 -- output
 
--- forward input samples, use queue to align samples with event outputs
+-- shift in/out input samples, use queue to align input samples with event outputs
 process(clk)
 begin
     if rising_edge(clk) then
@@ -181,11 +168,14 @@ process(clk)
 begin
     if rising_edge(clk) then
         cnt <= sample_cnt_int;
-        d1_risings <= d1_risings_int;
-        d2_risings <= d2_risings_int;
-        a_maxfound <= a_maxfound_int;
-        a_maxvalue <= max_height;
-        events <= cnt_event_int & d1_event_int & d2_event_int & a_event_int;
+        tdc_events <= (
+            d1_rising  => flat_events_to_event_t(d1_rising_int),
+            d1_falling => flat_events_to_event_t(d1_falling_int),
+            d2_rising  => flat_events_to_event_t(d2_rising_int),
+            d2_falling => flat_events_to_event_t(d2_falling_int),
+            a_maxfound => a_maxfound_int,
+            a_maxvalue => max_height
+        );
     end if;
 end process;
 

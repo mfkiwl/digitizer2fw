@@ -2,8 +2,9 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
-use work.sampling_pkg.all;
 use work.communication_pkg.all;
+use work.sampling_pkg.all;
+use work.tdc_sample_prep_pkg.all;
 
 entity application is
 port (
@@ -23,6 +24,7 @@ port (
     -- ram interface
     ram_calib_complete : in  std_logic;
     ram_rdy            : in  std_logic;
+    ram_addr           : out std_logic_vector(27 downto 0);
     ram_cmd            : out std_logic_vector(2 downto 0);
     ram_en             : out std_logic;
     ram_rd_data        : in  std_logic_vector(127 downto 0);
@@ -64,25 +66,6 @@ architecture application_arch of application is
 
     -- sample processing for TDC
     constant TDC_CNT_BITS: natural := 22;
-    component tdc_sample_prep
-    generic (CNT_BITS: natural := TDC_CNT_BITS);
-    port (
-        clk : in std_logic;
-        samples_d_in : in din_samples_t( 0 to 3 );
-        samples_a_in : in adc_samples_t( 0 to 1 );
-        a_threshold : in a_sample_t;
-        a_invert: in std_logic;
-        a_average: in std_logic_vector(1 downto 0);
-        samples_d_out : out din_samples_t( 0 to 3 );
-        samples_a_out : out a_samples_t( 0 to 1 );
-        cnt : out unsigned( CNT_BITS - 1 downto 0 );
-        d1_risings : out std_logic_vector( 3 downto 0 );
-        d2_risings : out std_logic_vector( 3 downto 0 );
-        a_maxfound : out std_logic_vector( 3 downto 0 );
-        a_maxvalue : out a_sample_t;
-        events : out std_logic_vector( 3 downto 0 )
-    );
-    end component;
     signal tdc_a_invert : std_logic := '0';
     signal tdc_a_average : std_logic_vector(1 downto 0) := (others => '0');
     signal tdc_a_threshold_cd1, tdc_a_threshold_cd2: a_sample_t := (others => '0');
@@ -90,25 +73,7 @@ architecture application_arch of application is
     signal tdc_d : din_samples_t ( 0 to 3 );
     signal tdc_a : a_samples_t ( 0 to 1 );
     signal tdc_cnt : unsigned ( TDC_CNT_BITS-1 downto 0 );
-    signal tdc_d1_rising : std_logic_vector( 3 downto 0 );
-    signal tdc_d2_rising : std_logic_vector( 3 downto 0 );
-    signal tdc_a_maxfound : std_logic_vector( 3 downto 0 );
-    signal tdc_a_maxvalue : a_sample_t;
-    signal tdc_events : std_logic_vector( 3 downto 0 );
-    
-    -- convert flat event vector to a single event encoded as valid flag + position. extract first event only.
-    function flat_event_to_valid_pos(flat: std_logic_vector(3 downto 0)) return std_logic_vector is
-        variable valid: std_logic := '0';
-        variable pos: unsigned(1 downto 0) := (others => '-');
-    begin
-        for I in 0 to 3 loop
-            if flat(I) = '1' then
-                valid := '1';
-                pos := to_unsigned(3-I, 2);
-            end if;
-        end loop;
-        return valid & std_logic_vector(pos);
-    end flat_event_to_valid_pos;
+    signal tdc_events : tdc_events_t;
 
     -- acquisition fifo buffer
     constant ACQ_BUFFER_CNT_BITS: natural := 16;
@@ -270,11 +235,13 @@ process(clk_main)
     constant RAM_CMD_RD: std_logic_vector(2 downto 0) := "001";
     variable n: integer;
     variable ram_rd_data_last: std_logic_vector(ram_rd_data'range) := (others => '0');
+    variable ram_addr_reg: std_logic_vector(ram_addr'range) := (others => '0');
 begin
     if rising_edge(clk_main) then
         -- default, no ram activity, no comm answer
         comm_from_ram <= (rd_ack => '0', wr_ack => '0', data_rd => (others => '-'));
         ram_en <= '0';
+        ram_addr <= ram_addr_reg;
         ram_wdf_wren <= '0';
         ram_wdf_end <= '0';
 
@@ -289,6 +256,18 @@ begin
                 -- read word from ram read buffer
                 comm_from_ram.data_rd <= ram_rd_data_last(((n+1)*16-1) downto (n*16));
                 comm_from_ram.rd_ack <= '1';
+            end if;
+        elsif (n = 8) then
+            if comm_to_ram.wr_req = '1' then
+                -- write low address bits
+                ram_addr_reg(15 downto 0) := comm_to_ram.data_wr;
+                comm_from_ram.wr_ack <= '1';
+            end if; 
+        elsif (n = 9) then
+            if comm_to_ram.wr_req = '1' then
+                -- write high address bits
+                ram_addr_reg(27 downto 16) := comm_to_ram.data_wr(11 downto 0);
+                comm_from_ram.wr_ack <= '1';
             end if;
         else
             -- send read or write command to ram
@@ -357,6 +336,7 @@ port map (
 tdc_a_threshold_cd2 <= signed(tdc_a_threshold_cd2slv);
 
 tdc_sample_prep_inst: tdc_sample_prep
+generic map (CNT_BITS => TDC_CNT_BITS)
 port map(
     clk           => clk_samples,
     samples_d_in  => samples_d,
@@ -367,47 +347,59 @@ port map(
     samples_d_out => tdc_d,
     samples_a_out => tdc_a,
     cnt           => tdc_cnt,
-    d1_risings    => tdc_d1_rising,
-    d2_risings    => tdc_d2_rising,
-    a_maxfound    => tdc_a_maxfound,
-    a_maxvalue    => tdc_a_maxvalue,
-    events        => tdc_events
+    tdc_events    => tdc_events
 );
 
 acquisition_process: process(clk_samples)    
     type acq_state_t is (s_reset, s_wait_ready, s_waittrig, s_buffering, s_done);
+    variable tdc_cnt_zero: unsigned(tdc_cnt'range) := (others => '0');
     variable acq_state: acq_state_t := s_reset;
+    variable tdc_cnt_ovfl: std_logic := '0';
     variable start_trig: boolean := false;
     variable stop_trig: boolean := false;
 begin
     if rising_edge(clk_samples) then
-        -- write state to global register, converted to unsigned
+        -- write state to global register, converted to unsigned/slv
         acq_state_toglobal <= std_logic_vector(to_unsigned(acq_state_t'pos(acq_state), 3));
 
-        -- reset acquisition fifo in reset state
+        -- reset acquisition fifo when in reset state
         if acq_state = s_reset then
             acq_buffer_rst <= '1';
         else
             acq_buffer_rst <= '0';
         end if;
 
+        -- counter overflow event
+        if tdc_cnt = tdc_cnt_zero then
+            tdc_cnt_ovfl := '1';
+        else
+            tdc_cnt_ovfl := '0';
+        end if;
+
         -- start trigger (non masked events)
         start_trig := false;
-        for I in 0 to 3 loop
-            if tdc_events(I) = '1' and acq_start_trig_mask(I) = '0' then
-                start_trig := true;
-            end if;
-        end loop;
+        if tdc_cnt_ovfl = '1' and acq_start_trig_mask(3) = '0' then
+            start_trig := true;
+        end if;
+        if tdc_events.d1_rising.valid = '1' and acq_start_trig_mask(2) = '0' then
+            start_trig := true;
+        end if;
+        if tdc_events.d2_rising.valid = '1' and acq_start_trig_mask(1) = '0' then
+            start_trig := true;
+        end if;
+        if tdc_events.a_maxfound.valid = '1' and acq_start_trig_mask(0) = '0' then
+            start_trig := true;
+        end if;
 
         -- stop trigger (enabled events)
         stop_trig := false;
         if acq_stop_soft = '1' then
             stop_trig := true;
         end if;
-        if tdc_events(2) = '1' and acq_stop_trig_en(1) = '1' then
+        if tdc_events.d1_rising.valid = '1' and acq_stop_trig_en(1) = '1' then
             stop_trig := true;
         end if;
-        if tdc_events(1) = '1' and acq_stop_trig_en(0) = '1' then
+        if tdc_events.d2_rising.valid = '1' and acq_stop_trig_en(0) = '1' then
             stop_trig := true;
         end if;
 
@@ -447,25 +439,25 @@ begin
         when "01" =>
             -- maxfind debug mode (analog + single digital + maxfind)
             acq_buffer_din <= tdc_d(0)(0) & tdc_d(1)(0) & tdc_d(2)(0) & tdc_d(3)(0) & std_logic_vector(tdc_a(0)) &
-                              tdc_a_maxfound & std_logic_vector(tdc_a(1));
+                              '0' & to_std_logic_vector(tdc_events.a_maxfound) & std_logic_vector(tdc_a(1));
             acq_buffer_din_valid <= '1';
         when "10" =>
             -- TDC mode (counter + events)
-            acq_buffer_din <= tdc_events(3) &                           -- overflow(31)
-                              flat_event_to_valid_pos(tdc_a_maxfound) & -- valid(30) + pos(29-28)
-                              flat_event_to_valid_pos(tdc_d1_rising) &  -- valid(27) + pos(26-25)
-                              flat_event_to_valid_pos(tdc_d2_rising) &  -- valid(24) + pos(23-22)
+            acq_buffer_din <= tdc_cnt_ovfl &                           -- overflow(31)
+                              to_std_logic_vector(tdc_events.a_maxfound) & -- valid(30) + pos(29-28)
+                              to_std_logic_vector(tdc_events.d1_rising) &  -- valid(27) + pos(26-25)
+                              to_std_logic_vector(tdc_events.d2_rising) &  -- valid(24) + pos(23-22)
                               std_logic_vector(tdc_cnt);                -- cnt(21-0)
-            acq_buffer_din_valid <= tdc_events(3) or tdc_events(2) or tdc_events(1) or tdc_events(0);
+            acq_buffer_din_valid <= tdc_cnt_ovfl or tdc_events.d1_rising.valid or tdc_events.d2_rising.valid or tdc_events.a_maxfound.valid;
         when others =>
             -- TDC + height mode (counter + maxvalue)
             acq_buffer_din <= (others => '0');
-            if tdc_events(0) = '1' then
-                -- use only the last 10 bits from maxvalue (unsigned 10bit)
-                acq_buffer_din(31 downto 22) <= std_logic_vector(tdc_a_maxvalue(9 downto 0));
+            if tdc_events.a_maxfound.valid = '1' then
+                -- use only the last 10 bits from maxvalue (assume non-negative value -> unsigned 10bit)
+                acq_buffer_din(31 downto 22) <= std_logic_vector(tdc_events.a_maxvalue(9 downto 0));
             end if;
             acq_buffer_din(21 downto 0) <= std_logic_vector(tdc_cnt);
-            acq_buffer_din_valid <= tdc_events(3) or tdc_events(0);
+            acq_buffer_din_valid <= tdc_cnt_ovfl or tdc_events.a_maxfound.valid;
         end case;
         
         -- override data valid if not in buffering state

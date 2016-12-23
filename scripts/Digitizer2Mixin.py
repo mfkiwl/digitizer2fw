@@ -1,5 +1,14 @@
+#-----------------------------------------------------------------------------
+# fpga-device-server client library for digitizer2
+#
+# Author: Peter Würtz, TU Kaiserslautern (2016)
+# Distributed under the terms of the GNU General Public License Version 3.
+# The full license is in the file COPYING.txt, distributed with this software.
+#-----------------------------------------------------------------------------
+
 import numpy as np
 import time
+
 REG_CONFIG = (0, 0)
 REG_CONFIG_ACQ = (0, 5)
 REG_STATUS = (0, 1)
@@ -188,6 +197,9 @@ class Digitizer2Mixin(object):
     ###################################################
 
     def adc_power(self, enabled):
+        """
+        Enable power to the analog circuit.
+        """
         self.set_config_bit(1, enabled)
 
     ###################################################
@@ -249,6 +261,11 @@ class Digitizer2Mixin(object):
         self._adc_program(0x66, 0b0000111111111111)  # LVDS output bus power (disable unused)
 
     def adc_device_enable(self, enabled):
+        """
+        Enable and initialize the onboard ADC.
+        Analog power must be enabled before initializing the ADC.
+        """
+
         # disable device
         self._adc_device_enable(False)
         self._adc_device_reset(False)
@@ -422,3 +439,4 @@ class Digitizer2Mixin(object):
 
     def ram_read_cmd(self):
         self.write_reg(PORT_RAM, 10, 1)
+

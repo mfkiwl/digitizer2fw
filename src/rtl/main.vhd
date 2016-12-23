@@ -1,3 +1,11 @@
+-------------------------------------------------------------------------------
+-- Digitizer2 top level module
+--
+-- Author: Peter Würtz, TU Kaiserslautern (2016)
+-- Distributed under the terms of the GNU General Public License Version 3.
+-- The full license is in the file COPYING.txt, distributed with this software.
+-------------------------------------------------------------------------------
+
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use ieee.numeric_std.all;
@@ -61,8 +69,6 @@ port (
 end top_level;
 
 architecture top_level_arch of top_level is
-
-    ----------------------------------------------------------------------------
 
     component application
     port (

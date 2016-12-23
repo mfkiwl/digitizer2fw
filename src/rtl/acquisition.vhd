@@ -63,7 +63,7 @@ architecture acquisition_arch of acquisition is
     signal tdc_cnt : unsigned ( TDC_CNT_BITS-1 downto 0 );
     signal tdc_events : tdc_events_t;
 
-    component fifo_adc_core
+    component fifo_acquisition
     port (
         rst: in std_logic;
         wr_clk: in std_logic;
@@ -103,7 +103,7 @@ port map(
     tdc_events    => tdc_events
 );
 
-fifo_acq_inst: fifo_adc_core
+fifo_acq_inst: fifo_acquisition
 port map (
     rst => acq_buffer_rst,
     wr_clk => clk_samples,

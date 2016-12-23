@@ -10,7 +10,142 @@ PORT_ADCPROG = 3
 PORT_ACQBUF = 4
 
 
+def parse_mode0(data_u16):
+    """
+    Parse data from RAW acquisition (mode=0).
+    Returns timestamps for detected maxima on the analog channel and rising edges on the digital channels.
+    :param data_u16: data from device
+    :return: times_a_maxfound, times_d1_rising, times_d2_rising
+    """
+
+    # TODO: should use (numba) parser instead of creating intermediate arrays
+    data_u16 = data_u16[:data_u16.size - (data_u16.size % 4)]  # clamp to multiple of 4
+    n_samples_a = data_u16.size
+    n_samples_d = 2 * n_samples_a
+
+    DT_A = 2e-9
+    DT_D = 1e-9
+    T_a = np.arange(n_samples_a) * DT_A
+    T_d1 = np.arange(n_samples_d) * DT_D
+    T_d2 = np.arange(n_samples_d) * DT_D
+
+    # analog samples (12bit signed)
+    data_a = (np.bitwise_and(0x0fff, data_u16) << 4).view(np.int16) >> 4
+
+    # digital samples
+    def extract_d_samples(data_u16, channel_idx):
+        assert (channel_idx is 0) or (channel_idx is 1)
+        # get array of 4bit digital data, combine to 8bit, unpack to bool array
+        bits_u4 = np.bitwise_and(0xf, data_u16[channel_idx::2] >> 12).astype(np.uint8)
+        bits_u8 = (bits_u4[0::2] << 4) | bits_u4[1::2]
+        data_bool = np.unpackbits(bits_u8)
+        return data_bool
+
+    data_d1 = extract_d_samples(data_u16, 0)
+    data_d2 = extract_d_samples(data_u16, 1)
+
+    return (T_a, data_a), (T_d1, data_d1), (T_d2, data_d2)
+
+
+def parse_mode2(data_u16):
+    """
+    Parse data from TDC acquisition (mode=2).
+    Returns timestamps for detected maxima on the analog channel and rising edges on the digital channels.
+    :param data_u16: data from device
+    :return: times_a_maxfound, times_d1_rising, times_d2_rising
+    """
+    data_u16 = data_u16[:data_u16.size - (data_u16.size % 2)]  # clamp to multiple of 2
+    packets = (data_u16[0::2].astype(np.uint32) << 16) | (data_u16[1::2].astype(np.uint32))
+    TDC_CNT_BITS = 22
+
+    # get data from tdc packets
+    # TODO: should use (numba) parser instead of creating intermediate arrays
+    cnt_overflow = np.bitwise_and(1 << 31, packets).astype(bool)
+    event_a = np.bitwise_and(1 << 30, packets).astype(bool)
+    event_a_pos = ((packets >> 28) & 0b11).astype(np.uint8)
+    event_d1 = np.bitwise_and(1 << 27, packets).astype(bool)
+    event_d1_pos = ((packets >> 25) & 0b11).astype(np.uint8)
+    event_d2 = np.bitwise_and(1 << 24, packets).astype(bool)
+    event_d2_pos = ((packets >> 22) & 0b11).astype(np.uint8)
+    cnt_values = np.bitwise_and(2**TDC_CNT_BITS - 1, packets)
+
+    # track counter overflows and construct timestamp array
+    times_out_a = np.zeros(np.count_nonzero(event_a), dtype=np.double)
+    times_out_d1 = np.zeros(np.count_nonzero(event_d1), dtype=np.double)
+    times_out_d2 = np.zeros(np.count_nonzero(event_d2), dtype=np.double)
+    idx_a = 0
+    idx_d1 = 0
+    idx_d2 = 0
+    DT_cyc = 4e-9
+    DT = 1e-9
+    cnt_accum = 0
+    for i in range(packets.size):
+        cnt_accum += 2**TDC_CNT_BITS * cnt_overflow[i]  # add counter length on overflow
+        cnt_value = cnt_values[i]
+
+        if event_a[i]:
+            times_out_a[idx_a] = (cnt_accum + cnt_value) * DT_cyc + event_a_pos[i] * DT
+            idx_a += 1
+
+        if event_d1[i]:
+            times_out_d1[idx_d1] = (cnt_accum + cnt_value) * DT_cyc + event_d1_pos[i] * DT
+            idx_d1 += 1
+
+        if event_d2[i]:
+            times_out_d2[idx_d2] = (cnt_accum + cnt_value) * DT_cyc + event_d2_pos[i] * DT
+            idx_d2 += 1
+
+    return times_out_a, times_out_d1, times_out_d2
+
+
+def parse_mode3(data_u16):
+    """
+    Parse data from analog maxfinder acquisition (mode=3).
+    Returns timestamps peak heights for detected maxima on the analog channel.
+    :param data_u16: data from device
+    :return: times_a_maxfound, maxvalues
+    """
+
+    # TODO: should use (numba) parser instead of creating intermediate arrays
+
+    data_u16 = data_u16[:data_u16.size - (data_u16.size % 2)]  # clamp to multiple of 2
+    packets = (data_u16[0::2].astype(np.uint32) << 16) | (data_u16[1::2].astype(np.uint32))
+    TDC_CNT_BITS = 22
+
+    cnt_values = np.bitwise_and(2 ** TDC_CNT_BITS - 1, packets)
+    cnt_overflow = (cnt_values == 0)
+    maxvalues_a = (packets >> TDC_CNT_BITS).astype(np.uint16)
+    event_a = (maxvalues_a != 0)
+
+    # track counter overflows and construct timestamp array
+    times_out_a = np.zeros(np.count_nonzero(event_a), dtype=np.double)
+    maxvalues_out_a = np.zeros(np.count_nonzero(event_a), dtype=np.uint16)
+    idx_a = 0
+    DT_cyc = 4e-9
+    cnt_accum = 0
+    for i in range(packets.size):
+        cnt_accum += 2**TDC_CNT_BITS * cnt_overflow[i]  # add counter length on overflow
+        cnt_value = cnt_values[i]
+
+        if event_a[i]:
+            times_out_a[idx_a] = (cnt_accum + cnt_value) * DT_cyc
+            maxvalues_out_a[idx_a] = maxvalues_a[i]
+            idx_a += 1
+
+    return times_out_a, maxvalues_out_a
+
+
+
 class Digitizer2Mixin(object):
+
+    # event sources for start/stop trigger
+    EVENT_SOURCE_CNT_OVERFLOW = 0
+    EVENT_SOURCE_D1_RISING = 1
+    EVENT_SOURCE_D1_FALLING = 2
+    EVENT_SOURCE_D2_RISING = 3
+    EVENT_SOURCE_D2_FALLING = 4
+    EVENT_SOURCE_A_MAXFOUND = 5
+    EVENT_SOURCE_NONE = 6
 
     def get_version(self):
         return self.read_reg(*REG_VERSION)
@@ -47,7 +182,7 @@ class Digitizer2Mixin(object):
 
     ###################################################
 
-    def device_temperature(self):
+    def fpga_temperature(self):
         return self.read_reg(0, 6)
 
     ###################################################
@@ -57,17 +192,18 @@ class Digitizer2Mixin(object):
 
     ###################################################
 
-    def adc_program(self, addr, value):
+    def _adc_program(self, addr, value):
         self.write_reg(PORT_ADCPROG, 0, addr)
         self.write_reg(PORT_ADCPROG, 1, value)
 
-    def adc_program_read(self, addr):
+    def _adc_program_read(self, addr):
         wr_addr = addr | (1 << 7)
         self.write_reg(PORT_ADCPROG, 0, wr_addr)
         time.sleep(0.01)
         return self.read_reg(PORT_ADCPROG, 0)
 
-    def adc_program_test(self, pattern="toggle2"):
+    def _adc_program_test(self, pattern="toggle2"):
+        # TODO: high perf. mode must be disabled when using test pattern
         patterns = {
             False: (0, 0, 0),
             "0": (0x8000, 0x0000, 0x0000),
@@ -78,7 +214,7 @@ class Digitizer2Mixin(object):
         pattern_words = patterns[pattern]
         for i in range(3):
             print("adcprog %x %x" % (0x3c + i, pattern_words[i]))
-            self.adc_program(0x3c + i, pattern_words[i])
+            self._adc_program(0x3c + i, pattern_words[i])
 
     ###################################################
 
@@ -89,24 +225,28 @@ class Digitizer2Mixin(object):
         self.set_config_bit(2, enabled)
 
     def _adc_program_autocorr_strobe(self):
-        self.adc_program(0x03, 0b0100101100011000)
-        self.adc_program(0x03, 0b0000101100011000)
+        self._adc_program(0x03, 0b0100101100011000)
+        self._adc_program(0x03, 0b0000101100011000)
 
-    def adc_program_highperf(self, enabled):
+    def _adc_program_highperf(self, enabled):
         value = 0b1000000000000010 if enabled else 0b1000000000000000
-        self.adc_program(0x1, value)
+        self._adc_program(0x1, value)
 
     def adc_temperature(self):
-        return self.adc_program_read(0x2b)
+        """
+        Read and return the ADC temperature
+        :return: temperature in celsius
+        """
+        return self._adc_program_read(0x2b)
 
     def _adc_device_init_regs(self):
-        self.adc_program(0x00, 0b0000000000000000)  # no decimation, no filter
-        self.adc_program(0x01, 0b1000000000000010)  # corr en, fmt int12, hp mode1
-        self.adc_program(0x0e, 0b0000000000000000)  # no sync
-        self.adc_program(0x0f, 0b0000000000000000)  # no sync, 1.0V vref
-        self.adc_program(0x38, 0b1111111111011111)  # hp mode2, bias en, no sync, lp mode
-        self.adc_program(0x3a, 0b1101100000011011)  # 3.5mA LVDS current
-        self.adc_program(0x66, 0b0000111111111111)  # LVDS output bus power (disable unused)
+        self._adc_program(0x00, 0b0000000000000000)  # no decimation, no filter
+        self._adc_program(0x01, 0b1000000000000010)  # corr en, fmt int12, hp mode1
+        self._adc_program(0x0e, 0b0000000000000000)  # no sync
+        self._adc_program(0x0f, 0b0000000000000000)  # no sync, 1.0V vref
+        self._adc_program(0x38, 0b1111111111011111)  # hp mode2, bias en, no sync, lp mode
+        self._adc_program(0x3a, 0b1101100000011011)  # 3.5mA LVDS current
+        self._adc_program(0x66, 0b0000111111111111)  # LVDS output bus power (disable unused)
 
     def adc_device_enable(self, enabled):
         # disable device
@@ -124,64 +264,143 @@ class Digitizer2Mixin(object):
             # setup registers
             self._adc_device_init_regs()
             self._adc_program_autocorr_strobe()
-            self.sampling_reset()
+            # reset sampling instance (iserdes elements)
+            self._sampling_rst()
 
-    def _sampling_rst(self, enabled):
-        self.set_config_bit(4, enabled)
-
-    def sampling_reset(self):
-        self._sampling_rst(True)
-        time.sleep(0.01)
-        self._sampling_rst(False)
+    def _sampling_rst(self):
+        self.set_config_bit(4, True)
+        self.set_config_bit(4, False)
 
     def _set_acq_conf_bit(self, bit, enabled):
         self._write_reg_bit(REG_CONFIG_ACQ[0], REG_CONFIG_ACQ[1], bit, enabled)
 
+    def _get_acq_conf(self):
+        return self.read_reg(REG_CONFIG_ACQ[0], REG_CONFIG_ACQ[1])
+
     def acq_reset(self):
+        """
+        Reset acquisition.
+        This clears the buffer and resets the acquisition. After the reset, the
+        device will wait for the configured trigger condition and start recording data.
+        """
         self._set_acq_conf_bit(0, True)
         self._set_acq_conf_bit(0, False)
 
     def acq_stop(self):
+        """
+        Stop acquisition manually.
+        """
         self._set_acq_conf_bit(1, True)
         self._set_acq_conf_bit(1, False)
 
-    def acq_data_select(self, source):
-        self._set_acq_conf_bit(2, source & 0b01)
-        self._set_acq_conf_bit(3, source & 0b10)
+    def acq_mode(self, mode):
+        """
+        Set acquisition mode for next acquisition.
+        Available mode are:
+        Raw acquisition mode (source=0)
+        Maxfind debug mode (source=1)
+        TDC mode (source=2)
+        Maxfind mode (source=3)
 
-    def acq_start_trig_mask(self, no_cnt=False, no_d1=True, no_d2=True, no_a=True):
-        self._set_acq_conf_bit(7, no_cnt)
-        self._set_acq_conf_bit(6, no_d1)
-        self._set_acq_conf_bit(5, no_d2)
-        self._set_acq_conf_bit(4, no_a)
+        :param source: data source id
+        """
+        self._set_acq_conf_bit(2, mode & 0b01)
+        self._set_acq_conf_bit(3, mode & 0b10)
 
-    def acq_stop_trig_en(self, en_d1=False, en_d2=False):
-        self._set_acq_conf_bit(9, en_d1)
-        self._set_acq_conf_bit(8, en_d2)
+    def _acq_mode_selected(self):
+        return (self._get_acq_conf() >> 2) & 0b11
+
+    def acq_start_trig_src(self, trig_source):
+        """
+        Set the start trigger source for acquisition.
+        The available event sources are:
+        EVENT_SOURCE_CNT_OVERFLOW, EVENT_SOURCE_D1_RISING, EVENT_SOURCE_D1_FALLING,
+        EVENT_SOURCE_D2_RISING, EVENT_SOURCE_D2_FALLING, EVENT_SOURCE_A_MAXFOUND, EVENT_SOURCE_NONE
+
+        :param trig_source: trigger source id
+        """
+        self._set_acq_conf_bit(4, trig_source & 0b001)
+        self._set_acq_conf_bit(5, trig_source & 0b010)
+        self._set_acq_conf_bit(6, trig_source & 0b100)
+
+    def acq_stop_trig_src(self, trig_source):
+        """
+        Set the stop trigger source for acquisition.
+        The available event sources are:
+        EVENT_SOURCE_CNT_OVERFLOW, EVENT_SOURCE_D1_RISING, EVENT_SOURCE_D1_FALLING,
+        EVENT_SOURCE_D2_RISING, EVENT_SOURCE_D2_FALLING, EVENT_SOURCE_A_MAXFOUND, EVENT_SOURCE_NONE
+
+        :param trig_source: trigger source id
+        """
+        self._set_acq_conf_bit(7, trig_source & 0b001)
+        self._set_acq_conf_bit(8, trig_source & 0b010)
+        self._set_acq_conf_bit(9, trig_source & 0b100)
 
     def acq_buffer_count(self):
-        return self.read_reg(PORT_ACQBUF, 0)
+        """
+        Return the number of words in the acquisition buffer.
+        :return: number of words in buffer
+        """
+        return 2 * self.read_reg(PORT_ACQBUF, 0)
 
-    def acq_buffer_read(self):
+    def acq_buffer_read_raw(self):
+        """
+        Read the acquisition buffer.
+        This returns the unmodified data from the device.
+        :return: acquisition raw data
+        """
         # read buffer
         n = self.acq_buffer_count()
         data = self.read_reg_n(PORT_ACQBUF, 1, n)
-        np.save("data.npy", data)
         return data
 
-    def tdc_a_threshold(self, value):
+    def acq_buffer_read(self):
+        """
+        Read the acquisition buffer.
+        This returns the data from the last acquisition.
+        The data is parsed according to the data selection setting.
+        :return: acquisition data
+        """
+        data = self.acq_buffer_read_raw()
+        mode_selected = self._acq_mode_selected()
+        if mode_selected == 0:
+            return parse_mode0(data)
+        elif mode_selected == 2:
+            return parse_mode2(data)
+        elif mode_selected == 3:
+            return parse_mode3(data)
+        else:
+            return data
+
+    def maxfind_threshold(self, value):
+        """
+        Set threshold for maximum detection.
+        :param value: threshold given in ADC units
+        """
         value_u16 = int(np.int16(value).view(np.uint16))
         self.write_reg(REG_A_THRESHOLD[0], REG_A_THRESHOLD[1], value_u16)
 
-    def tdc_a_average(self, value):
+    def analog_average(self, n):
+        """
+        Set window length of the analog moving average filter.
+        The window length is n+1.
+        :param n: window length parameter, range 0 to 2
+        """
         assert 0 <= value <= 2
-        self.set_config_bit(13, value & 0b01)
-        self.set_config_bit(14, value & 0b10)
+        self.set_config_bit(13, n & 0b01)
+        self.set_config_bit(14, n & 0b10)
 
-    def tdc_a_invert(self, invert):
+    def analog_invert(self, invert):
+        """
+        Set analog input polarity.
+        This allows to invert the analog signal internally for detecting negative pulses.
+        :param invert: enable/disable signal inverter
+        """
         self.set_config_bit(15, invert)
 
     ###################################################
+
+    # TODO: functions for testing ram
 
     def ram_buffer_init(self):
         for i in range(8):

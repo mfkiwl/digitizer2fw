@@ -56,6 +56,8 @@ begin
     a_invert <= '1';
 	wait for 10*clk_period;
 	samples_d_in <= (others => (others => '1'));
+	wait for 5*clk_period;
+	samples_d_in <= (others => (others => '0'));
 	wait for 10*clk_period;
 	samples_a_in(0).data <= to_signed(-1000, ADC_SAMPLE_BITS);
 	samples_a_in(1).data <= to_signed(0, ADC_SAMPLE_BITS);

@@ -5,6 +5,9 @@
 ## Distributed under the terms of the GNU General Public License Version 3.
 ## The full license is in the file COPYING.txt, distributed with this software.
 ###############################################################################
+# Firmware IDs
+set_property BITSTREAM.CONFIG.USERID "ABCDEF01" [current_design]
+set_property BITSTREAM.CONFIG.USR_ACCESS TIMESTAMP [current_design]
 
 # Placement
 set_property BEL PLLE2_ADV [get_cells clk_core_main_inst/inst/plle2_adv_inst]

@@ -7,13 +7,22 @@
 # The full license is in the file COPYING.txt, distributed with this software.
 #-----------------------------------------------------------------------------
 
+
+"""
+Digitizer2 Python API
+---------------------
+
+The python API for the digitizer2 firmware is provided as a mixin class for
+the pyfpgaclient reference library, included in fpga-device-server.
+"""
+
+from enum import IntEnum
 import numpy as np
 import time
 
 REG_CONFIG = (0, 0)
 REG_CONFIG_ACQ = (0, 5)
 REG_STATUS = (0, 1)
-REG_VERSION = (0, 3)
 REG_A_THRESHOLD = (0, 4)
 PORT_RAM = 2
 PORT_ADCPROG = 3
@@ -23,7 +32,9 @@ PORT_ACQBUF = 4
 def parse_mode0(data_u16):
     """
     Parse data from RAW acquisition (mode=0).
+
     Returns timestamps for detected maxima on the analog channel and rising edges on the digital channels.
+
     :param data_u16: data from device
     :return: times_a_maxfound, times_d1_rising, times_d2_rising
     """
@@ -60,7 +71,9 @@ def parse_mode0(data_u16):
 def parse_mode2(data_u16):
     """
     Parse data from TDC acquisition (mode=2).
+
     Returns timestamps for detected maxima on the analog channel and rising edges on the digital channels.
+
     :param data_u16: data from device
     :return: times_a_maxfound, times_d1_rising, times_d2_rising
     """
@@ -111,7 +124,9 @@ def parse_mode2(data_u16):
 def parse_mode3(data_u16):
     """
     Parse data from analog maxfinder acquisition (mode=3).
+
     Returns timestamps peak heights for detected maxima on the analog channel.
+
     :param data_u16: data from device
     :return: times_a_maxfound, maxvalues
     """
@@ -145,20 +160,60 @@ def parse_mode3(data_u16):
     return times_out_a, maxvalues_out_a
 
 
-
 class Digitizer2Mixin(object):
+    """
+    Mixin class for digitizer2 firmware.
+    """
 
-    # event sources for start/stop trigger
-    EVENT_SOURCE_CNT_OVERFLOW = 0
-    EVENT_SOURCE_D1_RISING = 1
-    EVENT_SOURCE_D1_FALLING = 2
-    EVENT_SOURCE_D2_RISING = 3
-    EVENT_SOURCE_D2_FALLING = 4
-    EVENT_SOURCE_A_MAXFOUND = 5
-    EVENT_SOURCE_NONE = 6
+    class TriggerSource(IntEnum):
+        """
+        Trigger sources
+
+        ============ =======================
+        item         description
+        ============ =======================
+        CNT_OVERFLOW counter overflow
+        D1_RISING    rising edge on D1
+        D1_FALLING   falling edge on D1
+        D2_RISING    rising edge on D2
+        D2_FALLING   falling edge on D2
+        A_MAXFOUND   maximum found (analog)
+        NONE         no trigger
+        ============ =======================
+        """
+        CNT_OVERFLOW = 0
+        D1_RISING = 1
+        D1_FALLING = 2
+        D2_RISING = 3
+        D2_FALLING = 4
+        A_MAXFOUND = 5
+        NONE = 6
+
+    class AcqMode(IntEnum):
+        """
+        Acquisition modes
+
+        ========  ======================
+        item      description
+        ========  ======================
+        RAW       raw acquisition mode
+        TDC       tdc mode
+        MAXFIND   peak maximum mode
+        ========  ======================
+        """
+        RAW = 0
+        TDC = 2
+        MAXFIND = 3
 
     def get_version(self):
-        return self.read_reg(*REG_VERSION)
+        value = (self.read_reg(0, 3)) << 16 | (self.read_reg(0, 4))
+        day = (value >> 27) & 0b11111
+        month = (value >> 23) & 0b1111
+        year = (value >> 17) & 0b111111
+        hour = (value >> 12) & 0b11111
+        minute = (value >> 6) & 0b111111
+        second = (value >> 0) & 0b111111
+        return year, month, day, hour, minute, second
 
     def get_status(self):
         return self.__status_to_dict(self.read_reg(*REG_STATUS))
@@ -247,7 +302,8 @@ class Digitizer2Mixin(object):
 
     def adc_temperature(self):
         """
-        Read and return the ADC temperature
+        Read and return the ADC device temperature
+
         :return: temperature in celsius
         """
         return self._adc_program_read(0x2b)
@@ -264,6 +320,7 @@ class Digitizer2Mixin(object):
     def adc_device_enable(self, enabled):
         """
         Enable and initialize the onboard ADC.
+
         Analog power must be enabled before initializing the ADC.
         """
 
@@ -295,14 +352,15 @@ class Digitizer2Mixin(object):
     def _get_acq_conf(self):
         return self.read_reg(REG_CONFIG_ACQ[0], REG_CONFIG_ACQ[1])
 
-    def acq_reset(self):
+    def acq_reset(self, enable):
         """
         Reset acquisition.
-        This clears the buffer and resets the acquisition. After the reset, the
-        device will wait for the configured trigger condition and start recording data.
+
+        An active reset will clear the internal buffer and reset the
+        acquisition logic. After clearing the reset, the device will wait for
+        the configured trigger condition and start recording data.
         """
-        self._set_acq_conf_bit(0, True)
-        self._set_acq_conf_bit(0, False)
+        self._set_acq_conf_bit(0, enable)
 
     def acq_stop(self):
         """
@@ -314,14 +372,12 @@ class Digitizer2Mixin(object):
     def acq_mode(self, mode):
         """
         Set acquisition mode for next acquisition.
-        Available mode are:
-        Raw acquisition mode (source=0)
-        Maxfind debug mode (source=1)
-        TDC mode (source=2)
-        Maxfind mode (source=3)
 
-        :param source: data source id
+        For available acquisition mode options see :class:`AcqMode` enum.
+
+        :param mode: acquisition mode
         """
+        mode = int(mode)
         self._set_acq_conf_bit(2, mode & 0b01)
         self._set_acq_conf_bit(3, mode & 0b10)
 
@@ -331,12 +387,12 @@ class Digitizer2Mixin(object):
     def acq_start_trig_src(self, trig_source):
         """
         Set the start trigger source for acquisition.
-        The available event sources are:
-        EVENT_SOURCE_CNT_OVERFLOW, EVENT_SOURCE_D1_RISING, EVENT_SOURCE_D1_FALLING,
-        EVENT_SOURCE_D2_RISING, EVENT_SOURCE_D2_FALLING, EVENT_SOURCE_A_MAXFOUND, EVENT_SOURCE_NONE
 
-        :param trig_source: trigger source id
+        For available trigger source options see :class:`TriggerSource` enum.
+
+        :param trig_source: trigger source
         """
+        trig_source = int(trig_source)
         self._set_acq_conf_bit(4, trig_source & 0b001)
         self._set_acq_conf_bit(5, trig_source & 0b010)
         self._set_acq_conf_bit(6, trig_source & 0b100)
@@ -344,12 +400,12 @@ class Digitizer2Mixin(object):
     def acq_stop_trig_src(self, trig_source):
         """
         Set the stop trigger source for acquisition.
-        The available event sources are:
-        EVENT_SOURCE_CNT_OVERFLOW, EVENT_SOURCE_D1_RISING, EVENT_SOURCE_D1_FALLING,
-        EVENT_SOURCE_D2_RISING, EVENT_SOURCE_D2_FALLING, EVENT_SOURCE_A_MAXFOUND, EVENT_SOURCE_NONE
 
-        :param trig_source: trigger source id
+        For available trigger source options see :class:`TriggerSource` enum.
+
+        :param trig_source: trigger source
         """
+        trig_source = int(trig_source)
         self._set_acq_conf_bit(7, trig_source & 0b001)
         self._set_acq_conf_bit(8, trig_source & 0b010)
         self._set_acq_conf_bit(9, trig_source & 0b100)
@@ -357,6 +413,7 @@ class Digitizer2Mixin(object):
     def acq_buffer_count(self):
         """
         Return the number of words in the acquisition buffer.
+
         :return: number of words in buffer
         """
         return 2 * self.read_reg(PORT_ACQBUF, 0)
@@ -364,7 +421,9 @@ class Digitizer2Mixin(object):
     def acq_buffer_read_raw(self):
         """
         Read the acquisition buffer.
+
         This returns the unmodified data from the device.
+
         :return: acquisition raw data
         """
         # read buffer
@@ -375,17 +434,19 @@ class Digitizer2Mixin(object):
     def acq_buffer_read(self):
         """
         Read the acquisition buffer.
+
         This returns the data from the last acquisition.
         The data is parsed according to the data selection setting.
+
         :return: acquisition data
         """
         data = self.acq_buffer_read_raw()
         mode_selected = self._acq_mode_selected()
-        if mode_selected == 0:
+        if mode_selected == Digitizer2Mixin.AcqMode.RAW:
             return parse_mode0(data)
-        elif mode_selected == 2:
+        elif mode_selected == Digitizer2Mixin.AcqMode.TDC:
             return parse_mode2(data)
-        elif mode_selected == 3:
+        elif mode_selected == Digitizer2Mixin.AcqMode.MAXFIND:
             return parse_mode3(data)
         else:
             return data
@@ -393,6 +454,7 @@ class Digitizer2Mixin(object):
     def maxfind_threshold(self, value):
         """
         Set threshold for maximum detection.
+
         :param value: threshold given in ADC units
         """
         value_u16 = int(np.int16(value).view(np.uint16))
@@ -401,7 +463,9 @@ class Digitizer2Mixin(object):
     def analog_average(self, n):
         """
         Set window length of the analog moving average filter.
+
         The window length is n+1.
+
         :param n: window length parameter, range 0 to 2
         """
         assert 0 <= value <= 2
@@ -411,7 +475,9 @@ class Digitizer2Mixin(object):
     def analog_invert(self, invert):
         """
         Set analog input polarity.
+
         This allows to invert the analog signal internally for detecting negative pulses.
+
         :param invert: enable/disable signal inverter
         """
         self.set_config_bit(15, invert)

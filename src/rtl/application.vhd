@@ -14,6 +14,9 @@ use work.communication_pkg.all;
 use work.sampling_pkg.all;
 use work.tdc_sample_prep_pkg.all;
 
+library unisim;
+use unisim.vcomponents.all;
+
 entity application is
 port (
     clk_main: in std_logic;
@@ -117,15 +120,22 @@ architecture application_arch of application is
     signal comm_from_global, comm_from_ram, comm_from_adcprog, comm_from_acqbuf: comm_from_slave_t;
     
     -- global registers
+    signal usr_access_data: std_logic_vector(31 downto 0);
     signal global_status: std_logic_vector(2 downto 0);
     signal global_conf, global_conf_in_acq: std_logic_vector(15 downto 0) := (others => '0');
     signal acq_conf_in_main, acq_conf_in_acq: std_logic_vector(15 downto 0) := (others => '0');
-
-    constant VERSION: natural := 162;
 begin
 
 LED1 <= '0';
 LED2 <= '0';
+
+-- read user logic version
+USR_ACCESSE2_inst : USR_ACCESSE2
+port map (
+    CFGCLK => open,
+    DATA => usr_access_data,
+    DATAVALID => open
+);
 
 -- communication slave select
 slave_select: process(comm_addr, comm_to_slave, comm_from_global, comm_from_ram, comm_from_adcprog, comm_from_acqbuf)
@@ -171,8 +181,11 @@ begin
             -- read global status register
             comm_from_global.data_rd(global_status'range) <= global_status;
         when 3 =>
-            -- read version
-            comm_from_global.data_rd <= std_logic_vector(to_unsigned(VERSION, 16));
+            -- read version (upper)
+            comm_from_global.data_rd <= usr_access_data(31 downto 16);
+        when 4 =>
+            -- read version (lower)
+            comm_from_global.data_rd <= usr_access_data(15 downto 0);
         when 5 =>
             -- read acquisition configuration register
             comm_from_global.data_rd(acq_conf_in_main'range) <= acq_conf_in_main;

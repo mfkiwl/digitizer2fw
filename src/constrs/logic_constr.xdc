@@ -6,7 +6,7 @@
 ## The full license is in the file COPYING.txt, distributed with this software.
 ###############################################################################
 # Firmware IDs
-set_property BITSTREAM.CONFIG.USERID "ABCDEF01" [current_design]
+set_property BITSTREAM.CONFIG.USERID 32'hC6BDE5A8 [current_design]
 set_property BITSTREAM.CONFIG.USR_ACCESS TIMESTAMP [current_design]
 
 # Placement
@@ -65,3 +65,7 @@ set_false_path -from [get_pins {application_inst/a_threshold_in_main_reg[8]/C}] 
 set_false_path -from [get_pins {application_inst/a_threshold_in_main_reg[9]/C}] -to [get_pins {application_inst/sync_a_threshold/gen[9].sync_bit/d_meta_reg/D}]
 set_false_path -from [get_pins {application_inst/a_threshold_in_main_reg[10]/C}] -to [get_pins {application_inst/sync_a_threshold/gen[10].sync_bit/d_meta_reg/D}]
 set_false_path -from [get_pins {application_inst/a_threshold_in_main_reg[11]/C}] -to [get_pins {application_inst/sync_a_threshold/gen[11].sync_bit/d_meta_reg/D}]
+
+set_false_path -from [get_pins {application_inst/acquisition_inst/acq_state_out_reg[0]/C}] -to [get_pins {application_inst/sync_acq_state/gen[0].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acquisition_inst/acq_state_out_reg[1]/C}] -to [get_pins {application_inst/sync_acq_state/gen[1].sync_bit/d_meta_reg/D}]
+set_false_path -from [get_pins {application_inst/acquisition_inst/acq_state_out_reg[2]/C}] -to [get_pins {application_inst/sync_acq_state/gen[2].sync_bit/d_meta_reg/D}]

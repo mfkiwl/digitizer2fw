@@ -85,6 +85,7 @@ architecture acquisition_arch of acquisition is
     signal acq_buffer_rd: std_logic;
     signal acq_buffer_wr: std_logic;
     signal acq_buffer_rd_cnt: std_logic_vector(16 downto 0);
+    signal acq_state_out: std_logic_vector(2 downto 0);
 
 begin
 
@@ -129,10 +130,13 @@ acquisition_process: process(clk_samples)
     variable tdc_cnt_zero: unsigned(tdc_cnt'range) := (others => '0');
     variable acq_state_int: acq_state_t := s_reset;
     variable tdc_cnt_ovfl: std_logic := '0';
-    variable start_trig: boolean := false;
-    variable stop_trig: boolean := false;
+    variable start_trig: std_logic := '0';
+    variable stop_trig: std_logic := '0';
 begin
     if rising_edge(clk_samples) then
+        -- write state to global register, converted to unsigned/slv
+        acq_state_out <= std_logic_vector(to_unsigned(acq_state_t'pos(acq_state_int), 3));
+    
         -- reset acquisition fifo when in reset state
         if acq_state_int = s_reset then
             acq_buffer_rst <= '1';
@@ -157,10 +161,8 @@ begin
             5 => tdc_events.a_maxfound.valid,
             6 => '0'
         );
-
-        -- start trigger from selected event source
-        start_trig := event_source_map(to_integer(unsigned(acq_start_src))) = '1';
-        stop_trig  := (event_source_map(to_integer(unsigned(acq_stop_src))) = '1') or (acq_stop = '1');
+        start_trig := '0';
+        stop_trig  := '0';
 
         -- state machine
         case acq_state_int is
@@ -171,11 +173,13 @@ begin
                     acq_state_int := s_waittrig;
                 end if;
             when s_waittrig =>
-                if start_trig then
+                start_trig := event_source_map(to_integer(unsigned(acq_start_src)));
+                if start_trig = '1' then
                     acq_state_int := s_buffering;
                 end if;
             when s_buffering =>
-                if acq_buffer_full = '1' or stop_trig then
+                stop_trig := event_source_map(to_integer(unsigned(acq_stop_src))) or acq_stop;
+                if acq_buffer_full = '1' or stop_trig = '1' then
                     acq_state_int := s_done;
                 end if;
             when others =>
@@ -208,7 +212,7 @@ begin
                               to_std_logic_vector(tdc_events.d2_rising) &  -- valid(24) + pos(23-22)
                               std_logic_vector(tdc_cnt);                   -- cnt(21-0)
             acq_buffer_wr <= tdc_cnt_ovfl or tdc_events.d1_rising.valid or tdc_events.d2_rising.valid or tdc_events.a_maxfound.valid;
-        when others =>
+        when "11" =>
             -- TDC + height mode (counter + maxvalue)
             acq_buffer_din <= (others => '0');
             if tdc_events.a_maxfound.valid = '1' then
@@ -216,17 +220,18 @@ begin
                 acq_buffer_din(31 downto 22) <= std_logic_vector(tdc_events.a_maxvalue(9 downto 0));
             end if;
             acq_buffer_din(21 downto 0) <= std_logic_vector(tdc_cnt);
-            acq_buffer_wr <= tdc_cnt_ovfl or tdc_events.a_maxfound.valid;
+            acq_buffer_wr <= start_trig or tdc_cnt_ovfl or tdc_events.a_maxfound.valid;
+        when others =>
+            null;
         end case;
         
         -- override data valid if not in buffering state
         if acq_state_int /= s_buffering then
             acq_buffer_wr <= '0';
         end if;
-
-        -- write state to global register, converted to unsigned/slv
-        acq_state <= std_logic_vector(to_unsigned(acq_state_t'pos(acq_state_int), 3));
     end if;
 end process;
+
+acq_state <= acq_state_out;
 
 end acquisition_arch;

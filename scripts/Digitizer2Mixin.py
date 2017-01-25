@@ -468,7 +468,7 @@ class Digitizer2Mixin(object):
 
         :param n: window length parameter, range 0 to 2
         """
-        assert 0 <= value <= 2
+        assert 0 <= n <= 2
         self.set_config_bit(13, n & 0b01)
         self.set_config_bit(14, n & 0b10)
 

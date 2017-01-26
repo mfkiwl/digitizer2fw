@@ -248,7 +248,14 @@ class Digitizer2Mixin(object):
     ###################################################
 
     def fpga_temperature(self):
-        return self.read_reg(0, 6)
+        """
+        Read and return the FPGA device temperature
+
+        :return: temperature in celsius
+        """
+        adc_code = self.read_reg(0, 6)
+        temp = (adc_code * 503.975) / 4096. - 273.15
+        return temp
 
     ###################################################
 
